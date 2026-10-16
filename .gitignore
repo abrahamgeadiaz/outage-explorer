@@ -1,0 +1,32 @@
+# --- Secrets: never commit real credentials ---
+.env
+.env.*
+!.env.example
+
+# --- Local data (extracted from EIA; reproducible via the connector) ---
+data/
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+*.egg-info/
+dist/
+build/
+
+# --- Node / frontend ---
+node_modules/
+frontend/dist/
+*.log
+
+# --- Editors / OS ---
+.idea/
+.vscode/
+*.swp
+.DS_Store
+Thumbs.db
