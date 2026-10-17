@@ -3,7 +3,7 @@
 Explore and query U.S. nuclear outage data from the [EIA Open Data API](https://www.eia.gov/opendata/)
 (national, facility and generator grains) without exporting it into spreadsheets by hand.
 
-> Status: work in progress. This README grows as each part lands.
+> Status: work in progress. The data connector (Part 1) is done; the model, API and web app follow.
 
 ## Parts
 
@@ -18,7 +18,70 @@ Python 3.13 · uv · httpx · DuckDB · Parquet · FastAPI · sqlglot · React �
 
 ## Setup
 
-_Coming soon._
+Requirements: [uv](https://docs.astral.sh/uv/) (it installs the right Python itself) and a free
+[EIA API key](https://www.eia.gov/opendata/register.php).
+
+```bash
+cp .env.example .env          # then set EIA_API_KEY (and JWT_SECRET, used by the API later)
+cd backend
+uv sync                       # creates .venv with all dependencies
+uv run pytest                 # all tests run offline against recorded EIA responses
+```
+
+## Data connector
+
+```bash
+cd backend
+uv run outage-extract                      # incremental: from each dataset's watermark - 30 days
+uv run outage-extract --full               # everything since 2007-01-01
+uv run outage-extract --dataset national   # one dataset (repeatable)
+uv run outage-extract --start 2026-09-01   # explicit window (--end too)
+```
+
+What it does:
+
+- Calls `us-nuclear-outages`, `facility-nuclear-outages` and `generator-nuclear-outages` (daily),
+  5000 rows per page, sorted by the natural key so offset pagination is stable.
+- Validates every row (see below) and writes typed Parquet to
+  `data/raw/<dataset>/year=<YYYY>/data.parquet`.
+- Works in one chunk per dataset and year, up to `EIA_MAX_CONCURRENCY` (default 3) in parallel.
+- Records every run in `data/_meta/runs/<run_id>.json` (status, rows fetched/rejected,
+  inserted/updated/unchanged/deleted, data quality summary, errors) and the watermarks in
+  `data/_meta/state.json`.
+
+**Re-running is safe.** The rows fetched for a window *replace* that window in the partition, keyed on
+the natural key, so two runs never duplicate data; the second reports `inserted: 0`. Files are written to
+a temp file and swapped in atomically, and a lock file (`data/_meta/extract.lock`) stops two
+extractions from running at the same time.
+
+**Kept current.** Incremental runs re-fetch from 30 days before the stored watermark up to today, so they
+add new days and also pick up values EIA revised recently (counted as `updated`).
+
+### Validation
+
+| Field | Rule | If it fails |
+|---|---|---|
+| `period`, natural-key ids (`facility`, `generator`) | present, valid date, inside the requested window | row rejected |
+| `capacity`, `outage` | present, numeric, finite | row rejected |
+| `*-units` | `megawatts` / `percent` | row rejected (a unit change would corrupt sums) |
+| `percentOutage` | numeric if present | kept as null, counted as a warning |
+| outage > capacity, negative values, duplicate keys | — | kept, counted as warnings for the data model |
+| fields we don't know | — | kept out of the file, reported as `unknown_fields` (schema drift) |
+
+### Behavior on failure
+
+| Situation | Behavior | Exit code |
+|---|---|---|
+| `EIA_API_KEY` missing | fails before any request | 2 |
+| Key rejected (HTTP 403 `API_KEY_INVALID`) | not retried; no further chunks start; nothing written; watermarks unchanged | 1 (run `failed`) |
+| Another extraction running | refused (lock older than 6 h is treated as stale) | 2 |
+| Timeout, connection error, HTTP 5xx (EIA sends 504s as HTML), 200 with non-JSON body | retried up to `EIA_MAX_RETRIES` (5) with jittered exponential backoff | — |
+| HTTP 429 | retried after `Retry-After` | — |
+| Still failing after retries / unexpected response shape / every row in a chunk invalid | that chunk's partition is left untouched, other chunks finish; run `partial`; that dataset's watermark does not move, so the next run re-fetches the gap | 1 |
+| API returns 0 rows for a window we already hold | refused, the stored rows are kept | 1 |
+
+The API key is sent as a query parameter (EIA's only option), so it is masked (`api_key=***`) in all logs,
+including httpx's own request log, and never appears in error messages or run metadata.
 
 ## Documents
 
