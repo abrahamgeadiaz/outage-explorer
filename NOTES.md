@@ -9,6 +9,7 @@ Running log, kept up to date while building — not written at the end.
 | Repo skeleton (.gitignore, .env.example, README stub) | Claude Code | Reviewed |
 | Backend scaffold, settings | Claude Code | Reviewed |
 | EIA client (`connector/eia_client.py`) + tests | Claude Code | Reviewed; failure modes chosen from real API probes |
+| Validation, storage, extraction orchestrator, CLI + tests | Claude Code | Reviewed; required-field and failure policies decided by me |
 
 ## Things the AI got wrong (and how I caught it)
 
@@ -20,6 +21,12 @@ Running log, kept up to date while building — not written at the end.
    filter on `httpx`/`httpcore` (`RedactApiKeyFilter`).
 2. **Exploration script crashed on Windows.** `Path.read_text()` without an encoding uses cp1252 on
    Windows and failed on the em dash in `.env`. All file I/O in the project passes `encoding="utf-8"`.
+3. **Failed chunks lost their data quality details.** On error the orchestrator built a fresh, empty
+   result, so a run where every row was rejected reported `rejected_by_reason: {}` — the one case where
+   you most need the reasons. Caught by a test asserting the reasons appear in the run summary. Fixed by
+   filling the result in place so partial information survives the exception.
+4. **Placeholder code left in.** A generated `_summarise` contained two meaningless lines
+   (`expected = ... and None; del expected`). Caught in code review before committing.
 
 ## How I verified generated code (beyond "it ran")
 
@@ -30,3 +37,6 @@ Running log, kept up to date while building — not written at the end.
   removing `from None` on timeouts, retrying 403s, stopping pagination only on an empty page, and
   removing the log filter. The first round showed the timeout case was *not* covered (all tests still
   passed), so I added the missing test.
+- **Mutation checks on the orchestrator**: watermark advancing on a partial run, no lookback window,
+  lock ignored, and writing a chunk whose rows were all rejected. The last one survived at first because
+  the storage-level "never wipe with an empty fetch" guard masked it; a first-load test now covers it.
