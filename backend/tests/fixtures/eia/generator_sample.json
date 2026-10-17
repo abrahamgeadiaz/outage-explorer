@@ -1,0 +1,96 @@
+{
+  "warnings": [
+    {
+      "warning": "incomplete return",
+      "description": "The API can only return 5000 rows in JSON format.  Please consider constraining your request with facet, start, or end, or using offset to paginate results."
+    }
+  ],
+  "response": {
+    "total": "713327",
+    "dateFormat": "YYYY-MM-DD",
+    "frequency": "daily",
+    "data": [
+      {
+        "period": "2026-10-16",
+        "facility": "46",
+        "facilityName": "Browns Ferry",
+        "generator": "1",
+        "capacity": "1254.8",
+        "outage": "0",
+        "percentOutage": "0",
+        "capacity-units": "megawatts",
+        "outage-units": "megawatts",
+        "percentOutage-units": "percent"
+      },
+      {
+        "period": "2026-10-16",
+        "facility": "46",
+        "facilityName": "Browns Ferry",
+        "generator": "2",
+        "capacity": "1242",
+        "outage": "0",
+        "percentOutage": "0",
+        "capacity-units": "megawatts",
+        "outage-units": "megawatts",
+        "percentOutage-units": "percent"
+      },
+      {
+        "period": "2026-10-16",
+        "facility": "46",
+        "facilityName": "Browns Ferry",
+        "generator": "3",
+        "capacity": "1259",
+        "outage": "0",
+        "percentOutage": "0",
+        "capacity-units": "megawatts",
+        "outage-units": "megawatts",
+        "percentOutage-units": "percent"
+      },
+      {
+        "period": "2026-10-16",
+        "facility": "204",
+        "facilityName": "Clinton Power Station",
+        "generator": "1",
+        "capacity": "1107.1",
+        "outage": "0",
+        "percentOutage": "0",
+        "capacity-units": "megawatts",
+        "outage-units": "megawatts",
+        "percentOutage-units": "percent"
+      },
+      {
+        "period": "2026-10-16",
+        "facility": "210",
+        "facilityName": "Wolf Creek Generating Station",
+        "generator": "1",
+        "capacity": "1255",
+        "outage": "0",
+        "percentOutage": "0",
+        "capacity-units": "megawatts",
+        "outage-units": "megawatts",
+        "percentOutage-units": "percent"
+      }
+    ],
+    "description": "Generator level nuclear outages with capacity, outages, and percent outage.  \n        Source:   Nuclear Regulatory Commission's Power Reactor Status Report.  \n        Interactive data report:  Daily Status of Nuclear Reactors."
+  },
+  "request": {
+    "command": "/v2/nuclear-outages/generator-nuclear-outages/data/",
+    "params": {
+      "frequency": "daily",
+      "length": "5",
+      "sort": [
+        {
+          "column": "period",
+          "direction": "desc"
+        }
+      ],
+      "data": [
+        "capacity",
+        "outage",
+        "percentOutage"
+      ]
+    }
+  },
+  "apiVersion": "2.1.14",
+  "ExcelAddInVersion": "2.1.0"
+}
