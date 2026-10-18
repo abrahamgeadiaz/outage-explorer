@@ -177,8 +177,11 @@ class EIAClient:
         return body
 
     def _backoff(self, attempt: int) -> float:
-        # Exponential with full jitter, capped at 2 minutes, so parallel workers don't retry in lockstep.
-        return random.uniform(0, min(120.0, self._backoff_base * 2 ** (attempt - 1)))  # noqa: S311
+        # Exponential with "equal jitter", capped at 2 minutes: the wait is always at least half the
+        # exponential step, so later retries really do wait longer (full jitter allowed 0.8s on a 4th retry
+        # during a real run), while the random half keeps parallel workers from retrying in lockstep.
+        step = min(120.0, self._backoff_base * 2 ** (attempt - 1))
+        return step / 2 + random.uniform(0, step / 2)  # noqa: S311
 
 
 def _error_code(resp: httpx.Response) -> str | None:

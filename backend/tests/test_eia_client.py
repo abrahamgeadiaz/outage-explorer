@@ -190,3 +190,25 @@ def test_httpx_request_log_does_not_leak_key(client, fixture_json, caplog):
     with caplog.at_level(logging.DEBUG):
         client.fetch_page(NATIONAL, D1, D2, 0)
     assert KEY not in caplog.text
+
+
+@pytest.mark.parametrize("seed", range(20))
+def test_backoff_grows_with_attempts_and_stays_capped(client, seed):
+    # Equal jitter: attempt n waits between half and all of base * 2**(n-1), capped at 120s.
+    import random
+
+    random.seed(seed)
+    delays = [client._backoff(n) for n in range(1, 10)]
+    for n, delay in enumerate(delays, start=1):
+        step = min(120.0, 2.0 * 2 ** (n - 1))
+        assert step / 2 <= delay <= step
+    assert delays[3] >= 8.0  # 4th retry never shorter than 8s (it was 0.8s with full jitter)
+    assert max(delays) <= 120.0
+
+
+@respx.mock
+def test_retry_waits_use_growing_backoff(client, sleeps):
+    respx.get(f"{BASE}/us-nuclear-outages/data/").respond(503)
+    with pytest.raises(EIATransientError):
+        client.fetch_page(NATIONAL, D1, D2, 0)
+    assert [1.0 <= sleeps[0] <= 2.0, 2.0 <= sleeps[1] <= 4.0, 4.0 <= sleeps[2] <= 8.0] == [True] * 3
