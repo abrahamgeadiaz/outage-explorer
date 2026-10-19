@@ -13,6 +13,7 @@ dependencies = [
 [project.scripts]
 outage-extract = "outage_explorer.connector.cli:main"
 outage-model = "outage_explorer.model.cli:main"
+outage-sql = "outage_explorer.model.explore:main"
 
 [dependency-groups]
 dev = [

@@ -10,7 +10,7 @@ Running log, kept up to date while building — not written at the end.
 | Backend scaffold, settings | Claude Code | Reviewed |
 | EIA client (`connector/eia_client.py`) + tests | Claude Code | Reviewed; failure modes chosen from real API probes |
 | Validation, storage, extraction orchestrator, CLI + tests | Claude Code | Reviewed; required-field and failure policies decided by me |
-| Data model build (`model/`) + tests | Claude Code | Reviewed; types, versioning and the US-08 / missing-unit policy decided by me from the data findings |
+| Data model build (`model/`), DQ checks, `outage-sql`, FINDINGS.md queries + tests | Claude Code | Reviewed; types, versioning and the US-08 / missing-unit policy decided by me from the data findings |
 
 ## Things the AI got wrong (and how I caught it)
 
@@ -36,6 +36,13 @@ Running log, kept up to date while building — not written at the end.
 6. **A data quality check whose test passed for the wrong reason.** The reporting-gap test used a 2-day
    gap. A mutation check (`> 1` changed to `> 2`, so 1-day gaps are no longer reported) still passed.
    The real data has 1-day gaps (River Bend, 2015-10-14), so I added a 1-day test; the mutation now fails.
+7. **Wrong numbers from a findings query, and a claim the data did not support.** The seasonal query (A5)
+   computed `lag()` after filtering to Apr 1 / Oct 1, so each "step" compared one season with the
+   previous one. That produced values like −6,234.7 MW. Caught by comparing the output with the earlier
+   exploration numbers; fixed by computing the step over every day first. Separately, a draft of
+   FINDINGS.md said national capacity was 102,165.4 MW on complete days after 2015-10-27. Checking it
+   showed there *are* no complete days in that stretch. Every number in FINDINGS.md was re-checked
+   against a query before committing.
 
 ## How I verified generated code (beyond "it ran")
 

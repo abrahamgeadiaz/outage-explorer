@@ -57,7 +57,7 @@ filled in with the step that settles them, in the same commit as the code.
 - **Rejected:** rebuilding `fact_facility_daily` as the sum of generators, so the grains always agree.
 - **Why:**
   - The real data has **no such case**: over 19 years, every facility row equals the sum of its
-    generators and every national row equals both sums, exactly (FINDINGS.md R). EIA builds the upper
+    generators and every national row equals both sums, exactly (FINDINGS.md, Reconciliation). EIA builds the upper
     grains from the units.
   - So a future mismatch would be news, a change at EIA or a broken load, and the product must show
     it, not hide it by recomputing.
@@ -189,7 +189,7 @@ _Pending: decided in step 6 (query path)._
   - On Windows a file that a reader has open can't be replaced; a new folder avoids that entirely.
   - A failed build changes nothing, and the previous builds stay for comparison or rollback.
   - A full rebuild takes ~25 s for 1.16M rows. That is simpler and safer than incremental model
-    updates at this size (see the volume notes in FINDINGS.md).
+    updates at this size (see the volume notes in docs/model.md).
 
   The build takes the connector's lock, so it never reads a raw file while an extraction swaps it.
   Where it lives: `model/build.py`.

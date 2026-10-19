@@ -3,7 +3,7 @@
 Explore and query U.S. nuclear outage data from the [EIA Open Data API](https://www.eia.gov/opendata/)
 (national, facility and generator grains) without exporting it into spreadsheets by hand.
 
-> Status: work in progress. The data connector (Part 1) is done; the model, API and web app follow.
+> Status: work in progress. The data connector (Part 1) and the data model (Part 2) are done; the API and web app follow.
 
 ## Parts
 
@@ -88,7 +88,11 @@ including httpx's own request log, and never appears in error messages or run me
 ```bash
 cd backend
 uv run outage-model           # builds data/model from data/raw (~25 s for the full history)
+uv run outage-sql ../analysis/findings.sql          # re-run every query behind FINDINGS.md
+uv run outage-sql --duckdb ../data/explore.duckdb   # views for a database manager (DBeaver, DataGrip)
 ```
+
+The ER diagram, keys and types are in [docs/model.md](docs/model.md).
 
 Every build goes to a new folder, `data/model/builds/<build_id>/`. `data/model/current.json` then
 switches to it atomically, so readers never see a half-written model. The newest 3 builds are kept.
@@ -128,5 +132,6 @@ what is left out, and `is_complete` is false (DECISIONS.md #17).
 ## Documents
 
 - `DECISIONS.md`: open design questions, choices and rejected alternatives
-- `FINDINGS.md`: reconciliation results and data anomalies
+- `FINDINGS.md`: reconciliation results and data anomalies (queries in `analysis/`)
+- `docs/model.md`: ER diagram, keys, types, notes for larger volumes
 - `NOTES.md`: engineering notes (AI usage, verification)
