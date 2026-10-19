@@ -503,6 +503,10 @@ filled in with the step that settles them, in the same commit as the code.
     straight to the URL.
   - Retries happen only for network errors and transient 5xx. A 403 is never retried, and neither is a
     `503 model_not_built`, which lasts until an Admin refreshes.
+  - The SQL page's CSV export prefixes a text cell starting with `=`, `+`, `-`, `@`, tab or CR with an
+    apostrophe, so a spreadsheet shows it instead of running it as a formula (CSV injection; added after
+    the security review). The text can come from a query, `SELECT '=HYPERLINK(...)'`. Numbers are left
+    alone, so `-5` stays a number.
 
   Where it lives: `frontend/src/api/client.ts`, `frontend/src/auth/`, `frontend/vite.config.ts`.
 

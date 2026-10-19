@@ -1,8 +1,14 @@
 import type { Cell, Column } from "./api/types";
 
+// Spreadsheets run a text cell that starts with one of these as a formula (CSV injection), and the text
+// can come from a user's SQL (`SELECT '=HYPERLINK(...)'`). A leading apostrophe keeps it plain text.
+// Only strings: a negative number stays a number.
+const FORMULA_START = /^[=+\-@\t\r]/;
+
 function field(value: Cell): string {
   if (value === null) return "";
-  const text = Array.isArray(value) ? JSON.stringify(value) : String(value);
+  let text = Array.isArray(value) ? JSON.stringify(value) : String(value);
+  if (typeof value === "string" && FORMULA_START.test(text)) text = `'${text}`;
   return /[",\r\n]/.test(text) ? `"${text.replaceAll('"', '""')}"` : text;
 }
 

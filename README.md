@@ -218,7 +218,7 @@ Sign in with one of the test users above. What each screen does:
 | Datasets | everyone | the datasets your role may see, grouped, with row counts |
 | Dataset page | everyone (`403` → "not allowed") | columns with types and definitions; rows filtered by date and facility, paged by the API; the URL keeps filters and page |
 | Fleet offline | everyone | **US-08** chart: daily % of capacity offline, summary tiles, shading where units are missing, the min–max range in the tooltip, table view |
-| SQL | roles with `query` | editor (Ctrl+Enter), results with paging, timing and `cached`, errors with their code, schema panel, history, CSV export |
+| SQL | roles with `query` | editor (Ctrl+Enter), results with paging, timing and `cached`, errors with their code, schema panel, history, CSV export (formula cells neutralized) |
 | Refresh | Admin | start an incremental or full refresh, follow its steps, see rows, the new build, DQ findings or why it failed |
 
 The session survives reloads (token in `localStorage`, checked with `/api/auth/me`). Sign out revokes

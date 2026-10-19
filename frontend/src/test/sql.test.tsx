@@ -176,6 +176,27 @@ describe("helpers", () => {
     expect(csv).toBe('a,b\r\n"say ""hi"", ok","[""6462/1"",""649/3""]"\r\n,[]');
   });
 
+  it("neutralizes text that a spreadsheet would run as a formula, but not numbers", () => {
+    const csv = toCsv(
+      [{ name: "=cmd", type: "VARCHAR" }, { name: "n", type: "DOUBLE" }],
+      [
+        ["=HYPERLINK(\"http://x\")", -5],
+        ["+1", 1.5],
+        ["-x", 0],
+        ["@SUM(A1)", 0],
+        ["a=b", 0],
+      ],
+    );
+    expect(csv.split("\r\n")).toEqual([
+      "'=cmd,n",
+      `"'=HYPERLINK(""http://x"")",-5`,
+      "'+1,1.5",
+      "'-x,0",
+      "'@SUM(A1),0",
+      "a=b,0",
+    ]);
+  });
+
   it("keeps the newest 20 distinct queries", () => {
     for (let i = 0; i < 25; i++) remember("u", `SELECT ${i}`, true);
     remember("u", "SELECT 3", true);
