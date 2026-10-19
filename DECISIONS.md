@@ -68,8 +68,28 @@ filled in with the step that settles them, in the same commit as the code.
 
 ### 4. Synchronous or asynchronous refresh
 
-_Pending: decided in step 6 (refresh endpoint). Input so far: a full load took 38 minutes and an
-incremental one about 35 seconds, both far longer than an HTTP request should stay open._
+- **Choice:** asynchronous. `POST /api/refresh` (Admin only) starts a job in a background thread and
+  answers `202` with its id in about 10 ms. `GET /api/refresh/{job_id}` reports the step (`extract`,
+  `model`, `done`) and the outcome: `succeeded`, `partial` (some chunks failed, model rebuilt from
+  what is stored), `failed` (nothing new served) or `interrupted`. It also reports per-dataset rows and
+  watermarks, the new `build_id`, the DQ findings by severity, and the reason for any failure. One job
+  runs at a time (`409`), and the connector's file lock also keeps out a CLI run. Job records are
+  written to `data/_meta/refresh_jobs/`, so the outcome survives a restart; a job that was running when
+  the server stopped shows as `interrupted`.
+- **Rejected:** a synchronous endpoint that returns when the refresh is done.
+- **Why:**
+  - The full load takes 38 minutes. An incremental refresh took 34 s through the API, longer than
+    proxies and browsers keep a request open. A request that times out tells the Admin nothing, but
+    US-06 is precisely "know whether it succeeded".
+  - The job reports `partial` rather than hiding it. A partial run is still worth serving (failed
+    chunks keep their old data, #12), and the Admin sees which window failed.
+  - Readers are never blocked or shown half a refresh. The model switches builds atomically (#15), and
+    the next request opens the new build's serving file (#21).
+  - Simplified: a thread inside the API process rather than a task queue (Celery, RQ). That's enough
+    for one server with one job at a time; with several API workers the job would have to move to a
+    queue, and the in-memory "one at a time" check would rely on the file lock alone.
+
+  Where it lives: `api/refresh.py`; the work itself is `run_extraction` + `build_model`.
 
 ### 5. What SQL is supported, what is rejected, and why
 

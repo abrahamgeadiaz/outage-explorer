@@ -11,7 +11,7 @@ Running log, kept up to date while building — not written at the end.
 | EIA client (`connector/eia_client.py`) + tests | Claude Code | Reviewed; failure modes chosen from real API probes |
 | Validation, storage, extraction orchestrator, CLI + tests | Claude Code | Reviewed; required-field and failure policies decided by me |
 | Data model build (`model/`), DQ checks, `outage-sql`, FINDINGS.md queries + tests | Claude Code | Reviewed; types, versioning and the US-08 / missing-unit policy decided by me from the data findings |
-| API auth, policy, catalog, preview, serving store (`api/`) + tests | Claude Code | Reviewed; Viewer column grant, role-per-request and the per-grant sandbox decided by me |
+| API auth, policy, catalog, preview, serving store, SQL guard, query, refresh jobs (`api/`) + tests | Claude Code | Reviewed; Viewer column grant, role-per-request and the per-grant sandbox decided by me |
 
 ## Things the AI got wrong (and how I caught it)
 
@@ -106,3 +106,9 @@ Running log, kept up to date while building — not written at the end.
   A test now checks the SQL that reaches the engine has the `LIMIT`.
 - **Parser vs engine**: every FINDINGS.md query is run twice, as written and as sqlglot regenerated
   it, and the results must be identical.
+- **Mutation checks on refresh** (each made a test fail): two jobs allowed at once, a running job not
+  marked `interrupted` after a restart, `partial` reported as `succeeded`, the model rebuilt after a
+  failed extraction, refresh open to every role.
+- **Refresh against the real API**: an incremental refresh through `POST /api/refresh` answered `202`
+  in 10 ms, refused a second one with `409`, finished in 34 s, and the next request served the new
+  build. It inserted 0 rows, because EIA had nothing new yet, which confirms re-runs don't duplicate.

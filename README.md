@@ -3,8 +3,8 @@
 Explore and query U.S. nuclear outage data from the [EIA Open Data API](https://www.eia.gov/opendata/)
 (national, facility and generator grains) without exporting it into spreadsheets by hand.
 
-> Status: work in progress. The data connector (Part 1) and the data model (Part 2) are done; the API (Part 3) is
-> being built; the web app follows.
+> Status: work in progress. The data connector (Part 1), the data model (Part 2) and the API (Part 3) are done;
+> the web app (Part 4) follows.
 
 ## Parts
 
@@ -161,6 +161,8 @@ curl -s localhost:8000/api/auth/me -H "Authorization: Bearer <access_token>"
 | `GET /api/datasets/{name}` | catalog | one of them (`403` if not granted, `404` if unknown) |
 | `GET /api/datasets/{name}/rows` | preview | rows filtered by `start`, `end` (dates, inclusive) and `facility_id` (repeatable), ordered by key; `limit` ≤ 1000, `offset`, `total` |
 | `POST /api/query` | query | `{"sql": "...", "max_rows": 1000}` → columns, rows, `truncated`, the tables read |
+| `POST /api/refresh` | refresh | `202` + job: extract from EIA, rebuild the model (`409` if one is running) |
+| `GET /api/refresh[/{job_id}]` | refresh | recent jobs / one job: step, status, rows, new build, DQ counts, error |
 | `GET /api/health` | none | liveness and the model build being served |
 
 Viewers see `fact_national_daily` and `metric_fleet_offline_daily` (without `missing_units`, which
@@ -179,10 +181,15 @@ curl -s -X POST localhost:8000/api/query -H "Authorization: Bearer <access_token
      -d '{"sql": "SELECT period, offline_pct FROM metric_fleet_offline_daily ORDER BY period DESC LIMIT 7"}'
 ```
 
+**Refresh (Admin).** `POST /api/refresh` (body `{"full": true}` to re-extract from 2007) returns
+`202` with a job; poll `GET /api/refresh/{job_id}` until `status` is `succeeded`, `partial`, `failed`
+or `interrupted`. `GET /api/refresh` lists recent jobs. An incremental refresh takes about 35 s; the new
+build is served from the next request (DECISIONS.md #4).
+
 Every error has the same shape, `{"error": {"code": "...", "message": "..."}}`: `401 unauthenticated`
 (no, invalid or expired token), `401 invalid_credentials`, `403 forbidden`, `400 filter_not_supported` / `invalid_filter`,
 `400` SQL rejections (`read_only`, `one_statement_only`, `function_not_allowed`, `source_not_allowed`,
-`unknown_table`, `syntax_error`, `query_error`), `408 query_timeout`,
+`unknown_table`, `syntax_error`, `query_error`), `408 query_timeout`, `409 refresh_in_progress`,
 `404 dataset_not_found`, `422 invalid_request`,
 `503 model_not_built`.
 
