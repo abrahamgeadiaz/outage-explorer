@@ -13,6 +13,7 @@ Running log, kept up to date while building — not written at the end.
 | Data model build (`model/`), DQ checks, `outage-sql`, FINDINGS.md queries + tests | Claude Code | Reviewed; types, versioning and the US-08 / missing-unit policy decided by me from the data findings |
 | Web app (`frontend/`): session, routes, dataset, SQL, refresh and US-08 pages + component tests | Claude Code | Reviewed; screens checked in a real browser against the real API |
 | API auth, policy, catalog, preview, serving store, SQL guard, query, refresh jobs (`api/`) + tests | Claude Code | Reviewed; Viewer column grant, role-per-request and the per-grant sandbox decided by me |
+| Documents: README, DECISIONS.md, FINDINGS.md, docs/model.md, PRODUCT.md | Claude Code (drafts) | Reviewed; decisions and stories chosen by me; every number in FINDINGS.md checked against a query (#7) |
 | Security review of the whole repo, the resource-limit fixes (DECISIONS.md #27) and the low findings (login limits, preview offset, logout, CSV) + tests | Claude Code | Reviewed; allow-list over block-list decided by me; scope and order of fixes chosen by me |
 
 ## Things the AI got wrong (and how I caught it)
