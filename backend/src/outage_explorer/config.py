@@ -29,6 +29,7 @@ class Settings(BaseSettings):
     # Signs the API's access tokens. The app refuses to start without one (api/auth.py).
     jwt_secret: SecretStr = SecretStr("")
     jwt_ttl_minutes: int = 60
+    query_timeout_seconds: float = 10.0  # user SQL is interrupted after this long
 
     @property
     def data_path(self) -> Path:

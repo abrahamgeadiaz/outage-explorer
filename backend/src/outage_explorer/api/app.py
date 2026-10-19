@@ -6,7 +6,7 @@ import logging
 import uvicorn
 from fastapi import FastAPI
 
-from outage_explorer.api import auth, catalog, preview
+from outage_explorer.api import auth, catalog, preview, query
 from outage_explorer.api.errors import install_handlers
 from outage_explorer.config import Settings, get_settings
 from outage_explorer.model.build import load_current
@@ -26,6 +26,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(auth.router)
     app.include_router(catalog.router)
     app.include_router(preview.router)
+    app.include_router(query.router)
 
     @app.get("/api/health", tags=["health"])
     def health() -> dict:

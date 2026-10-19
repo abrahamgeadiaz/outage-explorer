@@ -71,7 +71,7 @@ def _where(
     return (" WHERE " + " AND ".join(clauses) if clauses else ""), params
 
 
-def _json_value(value: Any) -> Any:
+def json_value(value: Any) -> Any:
     # DECIMAL(12,3) fits a double exactly enough for display; JSON has no decimal type.
     return float(value) if isinstance(value, Decimal) else value
 
@@ -109,6 +109,6 @@ def preview(
         dataset=name,
         build_id=manifest["build_id"],
         columns=[ColumnRef(name=c.name, type=c.type) for c in columns],
-        rows=[[_json_value(v) for v in row] for row in rows],
+        rows=[[json_value(v) for v in row] for row in rows],
         page=PageOut(limit=limit, offset=offset, total=total, has_more=offset + len(rows) < total),
     )

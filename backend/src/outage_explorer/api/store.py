@@ -26,8 +26,10 @@ from outage_explorer.model.tables import Column
 
 log = logging.getLogger(__name__)
 
-# Applied when a request opens a serving file (together with read_only=True).
-SANDBOX = {"enable_external_access": False, "lock_configuration": True}
+# Applied when a request opens a serving file (together with read_only=True). Without
+# python_enable_replacements=False, `FROM name` would also resolve Python DataFrames / Arrow tables in
+# the calling code's scope.
+SANDBOX = {"enable_external_access": False, "python_enable_replacements": False, "lock_configuration": True}
 
 _build_lock = threading.Lock()  # one process (uvicorn's default): a thread lock is enough
 

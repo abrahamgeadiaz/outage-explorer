@@ -55,6 +55,15 @@ Running log, kept up to date while building — not written at the end.
    as `'facility/generator'`, which is detail a Viewer must never see. I caught it reading the column
    list against US-05. The Viewer gets an allow-list of columns without it.
 
+10. **CTE resolution silently did nothing.** The generated guard looked for a query's CTEs under
+    `node.args["with"]`. sqlglot 30 renamed that key to `with_`, so the lookup always returned `None`,
+    and `WITH t AS (...) SELECT * FROM t` was rejected as "no dataset named 't'". It failed safe, by
+    over-rejecting, but CTEs were unusable. Caught by running the guard on a list of tricky queries
+    before writing the tests. Fixed by finding the `With` node by type instead of by key name.
+11. **DuckDB's Python replacement scans.** By default, `FROM name` in DuckDB's Python API falls back to
+    a pandas or Arrow variable called `name` in the calling code. The plan didn't mention it. A probe
+    confirmed it, and the sandbox now turns it off (`python_enable_replacements=false`).
+
 ## How I verified generated code (beyond "it ran")
 
 - **Recorded fixtures, not invented ones.** Test fixtures in `backend/tests/fixtures/eia/` are real
@@ -89,3 +98,11 @@ Running log, kept up to date while building — not written at the end.
 - **API on the real data**: catalog, preview and the Viewer 403 checked against the full model. The
   River Bend window 2015-02-13..16 returns 2 rows (the known weekend gap), and offset 700,000 of the
   generator table takes about 60 ms.
+- **Mutation checks on the query path** (each made a test fail): CTEs visible inside their own body
+  or to earlier CTEs, no CTE resolution, the forbidden-statement walk removed, table functions or
+  qualified names allowed, several statements allowed, the per-table grant check removed, an
+  off-by-one in `truncated`. One survived at first: running the query **without** the row cap. The
+  endpoint slices the rows in Python too, so responses looked right while DuckDB built the full result.
+  A test now checks the SQL that reaches the engine has the `LIMIT`.
+- **Parser vs engine**: every FINDINGS.md query is run twice, as written and as sqlglot regenerated
+  it, and the results must be identical.

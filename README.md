@@ -160,14 +160,29 @@ curl -s localhost:8000/api/auth/me -H "Authorization: Bearer <access_token>"
 | `GET /api/datasets` | catalog | datasets the caller may see: columns, types, definitions, row counts, filters |
 | `GET /api/datasets/{name}` | catalog | one of them (`403` if not granted, `404` if unknown) |
 | `GET /api/datasets/{name}/rows` | preview | rows filtered by `start`, `end` (dates, inclusive) and `facility_id` (repeatable), ordered by key; `limit` ≤ 1000, `offset`, `total` |
+| `POST /api/query` | query | `{"sql": "...", "max_rows": 1000}` → columns, rows, `truncated`, the tables read |
 | `GET /api/health` | none | liveness and the model build being served |
 
 Viewers see `fact_national_daily` and `metric_fleet_offline_daily` (without `missing_units`, which
 names units) and nothing else (DECISIONS.md #20). Requests read a copy of the model that holds
 only the caller's datasets, opened read-only with file access off (`data/serve/`, DECISIONS.md #21).
 
+**SQL.** One read-only query: `SELECT`, joins, CTEs, subqueries, set operations, aggregates and
+window functions over the dataset names in the catalog. Every table the query reads, including tables
+in subqueries and CTEs, must be granted to the caller, or the whole query is refused. Writes, settings,
+table functions (`read_parquet`...) and file paths are rejected. Results are capped at `max_rows`
+(≤ 5000) and queries stop after 10 s (`QUERY_TIMEOUT_SECONDS`). See DECISIONS.md #5 and #6.
+
+```bash
+curl -s -X POST localhost:8000/api/query -H "Authorization: Bearer <access_token>" \
+     -H 'Content-Type: application/json' \
+     -d '{"sql": "SELECT period, offline_pct FROM metric_fleet_offline_daily ORDER BY period DESC LIMIT 7"}'
+```
+
 Every error has the same shape, `{"error": {"code": "...", "message": "..."}}`: `401 unauthenticated`
 (no, invalid or expired token), `401 invalid_credentials`, `403 forbidden`, `400 filter_not_supported` / `invalid_filter`,
+`400` SQL rejections (`read_only`, `one_statement_only`, `function_not_allowed`, `source_not_allowed`,
+`unknown_table`, `syntax_error`, `query_error`), `408 query_timeout`,
 `404 dataset_not_found`, `422 invalid_request`,
 `503 model_not_built`.
 

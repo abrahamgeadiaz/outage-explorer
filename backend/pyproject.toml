@@ -10,6 +10,7 @@ dependencies = [
     "pyarrow>=17",
     "pydantic-settings>=2.4",
     "pyjwt>=2.15.1",
+    "sqlglot>=30.23.0",
     "uvicorn>=0.54.0",
 ]
 

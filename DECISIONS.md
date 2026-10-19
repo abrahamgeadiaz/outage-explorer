@@ -73,11 +73,57 @@ incremental one about 35 seconds, both far longer than an HTTP request should st
 
 ### 5. What SQL is supported, what is rejected, and why
 
-_Pending: decided in step 6 (query path)._
+- **Choice:** one statement that is a query: `SELECT` (including DuckDB's `FROM t` form), `UNION` /
+  `INTERSECT` / `EXCEPT`, CTEs (`WITH`, `WITH RECURSIVE`), subqueries anywhere, joins, `LATERAL`,
+  aggregates and window functions. Rejected: anything that writes, changes settings or describes the
+  engine (`INSERT`, `UPDATE`, `DELETE`, `CREATE`, `DROP`, `ALTER`, `COPY`, `ATTACH`, `SET`, `PRAGMA`,
+  `DESCRIBE`, `EXPLAIN`, `INSTALL`, `SELECT INTO`); more than one statement; table functions in `FROM`
+  (`read_parquet`, `glob`, `range`, `duckdb_tables`, `query_table`...); file paths as tables;
+  schema- or catalog-qualified names; functions that read files or the environment. Results are capped
+  at `max_rows` (default 1,000, at most 5,000) and queries are interrupted after 10 s.
+- **Rejected:** single-table `SELECT` only (the brief's minimum).
+- **Why:**
+  - The analysts' real questions need joins and CTEs. The reconciliation queries in `findings.sql` are
+    all of that kind, and all 15 run through the API unchanged (a test checks this).
+  - The rules are an allow-list: a node type sqlglot doesn't know becomes a `Command`, which is
+    rejected. Every role gets the same rules, including Admin, so no API path writes data.
+  - Rejecting a statement says why (`read_only`, `function_not_allowed`, `unknown_table`...), so the
+    SQL box can show a useful error.
+  - The parser is the first check, not the only one: the query runs on the role's read-only serving
+    file with no file access (#21), so a statement the parser misjudged still can't write or read files.
+  - The cap is part of the SQL that runs (`LIMIT max_rows + 1`; the extra row tells whether the result
+    was cut), so DuckDB stops early instead of building the full result first. A smaller `LIMIT` in
+    the query is kept, and so is its `ORDER BY`.
+
+  Where it lives: `api/sqlguard.py` (`check`, `with_row_cap`), `api/query.py`.
 
 ### 6. How the query path finds every table a query touches before checking permissions
 
-_Pending: decided in step 6 (query path)._
+- **Choice:** parse with sqlglot (DuckDB dialect) and visit **every** `Table` node in the tree, wherever
+  it is: `FROM`, joins, subqueries in `SELECT` / `WHERE` / `EXISTS`, CTE bodies, set operations,
+  `LATERAL`. Each one is resolved to either a CTE that is visible at that point, or a model table. A
+  name that is neither is rejected. Every model table found is then checked against the caller's grant;
+  one table not granted refuses the whole query (`403`, naming the tables). Only then does the query
+  run, and what runs is the SQL **regenerated from the checked tree**, not the text the user sent.
+- **Rejected:** collecting table names with a regex, or asking DuckDB which tables a query reads by
+  running `EXPLAIN` first.
+- **Why:**
+  - A regex can't tell a table from a CTE, a string or a comment, and misses subqueries. `EXPLAIN`
+    would mean running the user's statement through the engine before it was checked.
+  - CTE scope is handled the way DuckDB does it, because getting it wrong is a bypass. A CTE is
+    visible to the query it's attached to and to everything nested in it. Inside a CTE's own body, only
+    the CTEs defined before it are visible, plus itself under `WITH RECURSIVE`. So
+    `WITH fact_generator_daily AS (SELECT * FROM fact_generator_daily) ...` checks the real table, and
+    a CTE defined in one subquery can't hide a real table of the same name in another. A test runs a
+    CTE named like a detail table as a Viewer and checks that DuckDB returns the CTE's rows, so the
+    guard and the engine agree.
+  - Running the regenerated SQL means the engine executes exactly the tree that was checked, even where
+    sqlglot and DuckDB would read the original text differently. A test runs every FINDINGS.md query
+    both ways and compares the results.
+  - Columns aren't checked by the parser (`SELECT *` would need expanding). The Viewer's hidden column
+    simply doesn't exist in its serving file, so DuckDB itself can't find it.
+
+  Where it lives: `api/sqlguard.py` (`check`, `_is_cte_reference`), `api/query.py` (`authorize`).
 
 ---
 
@@ -305,6 +351,8 @@ _Pending: decided in step 6 (query path)._
     The checks in code (grants now, the SQL parser in step 6) are the first line of defense; this is
     the second, and it holds even if one of them has a bug. Tests run `CREATE`, `DELETE`, `SET`,
     `ATTACH`, `COPY` and `read_parquet` on a Viewer connection and expect each to fail.
+  - Python replacement scans are off as well (`python_enable_replacements=false`). Otherwise DuckDB
+    resolves an unknown `FROM name` to a pandas or Arrow object of that name in the calling Python code.
   - The grant hash is part of the file name, so a change to `policy.py` takes effect on the next
     request, with no stale copy served. The build id is part of it too, so a refresh does the same.
   - Cost: one copy of the model per distinct grant (15 MB for the full one, 0.8 MB for the Viewer).
