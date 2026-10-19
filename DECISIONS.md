@@ -562,3 +562,34 @@ filled in with the step that settles them, in the same commit as the code.
     that before exposing SQL to untrusted users.
 
   Where it lives: `api/store.py` (`SANDBOX`), `api/sqlguard.py` (`ALLOWED_FUNCTIONS`).
+
+### 28. A unit that returns after a long gap keeps one lifetime and is counted as EIA reports it
+
+- **Choice:** a unit's reporting lifetime runs from its first row to its last, whatever lies in
+  between. Palisades (1715/1) is absent 2022-06-01 → 2025-09-08 and comes back at 100% outage
+  (FINDINGS.md A4). The gap's 1,196 days count as missing in US-08 (`units_missing`, the min–max
+  range, not `is_complete`), it is one `unit_reporting_gap` warning, and since its return the unit
+  is `active` and adds its whole rating to the outage, as in EIA's national figure.
+- **Rejected:** treating a long gap as a retirement and a restart, or leaving out units that sit at
+  100% outage for months ("operating fleet only").
+- **Why:**
+  - Either rule needs a threshold (how many days is "retired"?) that the data can't justify: EIA has
+    no status field (A7), and River Bend's gaps run from 1 to 120 days.
+  - Ending the lifetime at the gap would make those 1,196 days look complete, so US-08 would show
+    a smaller fleet as if nothing were missing. Counting them as missing keeps the range honest (#17).
+  - Leaving the unit out would put US-08 about 0.8 percentage points below EIA's national number
+    every day since 2025-09-09, and users would see two figures that disagree for no stated reason.
+    An analyst who wants an operating-fleet view can exclude units through `dim_generator`.
+
+  Where it lives: `model/build.py` (unit lifetimes, `metric_fleet_offline_daily`), `model/quality.py`.
+
+---
+
+## Where the anomalies are handled
+
+| Anomaly (FINDINGS.md) | Decisions |
+|---|---|
+| A1. The facility route's `total` is wrong | #8: page until a short page, never trust `total` |
+| A2. Units vanish from all three grains | #17: US-08 keeps EIA's denominator and shows what is missing; #18: `unit_reporting_gap` in `dq_issue`; #11: no row is dropped or invented |
+| A3. Indian Point 2: zero capacity with a percentage | #14: `percent_outage` recomputed (NULL at capacity 0), EIA's value kept; #17: left out of the share, counted in `units_zero_capacity`; #18: `non_positive_capacity` error |
+| A4. Palisades returns after three years at 100% outage | #28: one lifetime, the gap counted as missing, the unit counted as EIA reports it |
