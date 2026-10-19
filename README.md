@@ -349,3 +349,4 @@ convenience: every request is authorized by the API (DECISIONS.md #26).
 - `FINDINGS.md`: reconciliation results and data anomalies (queries in `analysis/`)
 - `docs/model.md`: ER diagram, keys, types, notes for larger volumes
 - `NOTES.md`: engineering notes (AI usage, what the AI got wrong, verification)
+- `PRODUCT.md`: stories added, key UX decisions, what was left out and what comes next
