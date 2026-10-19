@@ -175,7 +175,7 @@ table functions (`read_parquet`...), file paths and functions outside an allow-l
 are rejected. Results come `max_rows` (≤ 5000) at
 a time; send `offset = next_offset` for the next page (stable when the query has an `ORDER BY`).
 Queries stop after 10 s (`QUERY_TIMEOUT_SECONDS`), and a page larger than 20 MB is refused
-(`QUERY_MAX_RESULT_BYTES`). Results are cached
+(`QUERY_MAX_RESULT_BYTES`). At most 4 queries run at once (`QUERY_MAX_CONCURRENT`); past that, `503 server_busy`. Results are cached
 for 5 minutes per role grant and model build (`cached: true` in the response; `QUERY_CACHE_TTL_SECONDS`,
 `QUERY_CACHE_MAX_BYTES`, `0` disables), and every refresh clears the cache (DECISIONS.md #24). See DECISIONS.md #5 and #6.
 
@@ -196,7 +196,7 @@ address, within 5 minutes; `Retry-After` says when to try again), `400 filter_no
 `400` SQL rejections (`read_only`, `one_statement_only`, `function_not_allowed`, `source_not_allowed`,
 `unknown_table`, `syntax_error`, `query_error`, `result_too_large`), `408 query_timeout`, `409 refresh_in_progress`,
 `404 dataset_not_found`, `422 invalid_request`,
-`503 model_not_built`.
+`503 model_not_built`, `503 server_busy`.
 
 ## Web app
 

@@ -246,3 +246,35 @@ def test_approx_size_counts_text_and_nested_values():
     assert query_module.approx_size(1.5) == 8
     assert query_module.approx_size(("ab", ["cd", None])) == 8 + 2 + (8 + 2 + 8)
     assert query_module.approx_size({"k": "vv"}) == 8 + 1 + 2
+
+
+# --- concurrency -----------------------------------------------------------------------------------
+
+
+def test_queries_past_the_concurrency_limit_get_503_but_cached_results_do_not_wait(
+    api_settings, api_model, monkeypatch
+):
+    monkeypatch.setattr(query_module, "QUEUE_WAIT_SECONDS", 0.05)
+    app = create_app(api_settings.model_copy(update={"query_max_concurrent": 1}))
+    cached = "SELECT count(*) FROM fact_national_daily"
+    with TestClient(app) as c:
+        _query(c, "analyst", cached)
+        app.state.query_slots.acquire()  # another query holds the only slot
+        try:
+            busy = _query(c, "analyst", "SELECT 1")
+            hit = _query(c, "analyst", cached)
+        finally:
+            app.state.query_slots.release()
+        after = _query(c, "analyst", "SELECT 1")
+    assert busy.status_code == 503 and busy.headers["Retry-After"] == "1"
+    assert busy.json()["error"]["code"] == "server_busy"
+    assert hit.status_code == 200 and hit.json()["cached"] is True
+    assert after.status_code == 200
+
+
+def test_a_failed_query_gives_its_slot_back(api_settings, api_model, monkeypatch):
+    monkeypatch.setattr(query_module, "QUEUE_WAIT_SECONDS", 0.05)
+    app = create_app(api_settings.model_copy(update={"query_max_concurrent": 1}))
+    with TestClient(app) as c:
+        assert _query(c, "analyst", "SELECT 1 / 'x'").json()["error"]["code"] == "query_error"
+        assert _query(c, "analyst", "SELECT 1").status_code == 200

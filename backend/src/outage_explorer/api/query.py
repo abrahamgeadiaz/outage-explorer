@@ -2,7 +2,8 @@
 
 Order of work: capability, then sqlguard.check (one SELECT, plain table names, every table resolved),
 then every table against the caller's grant, and only then the query runs, on the caller's serving
-file (read-only, no file access, only their tables and columns), with a row cap and a timeout.
+file (read-only, no file access, only their tables and columns), with a row cap, a size cap and a
+timeout, and only while one of QUERY_MAX_CONCURRENT slots is free (DECISIONS #27).
 
 Results are cached per grant and build (api/cache.py), but only after the checks above: a cached
 result is never a way around authorization.
@@ -32,6 +33,7 @@ from outage_explorer.model.tables import TABLES
 DEFAULT_MAX_ROWS = 1000
 MAX_ROWS = 5000
 MAX_OFFSET = 10_000_000  # more rows than the whole model has
+QUEUE_WAIT_SECONDS = 2.0  # how long a query waits for a free slot before 503 server_busy
 
 
 class QueryIn(BaseModel):
@@ -129,12 +131,23 @@ def query(
     if (hit := cache.get(key)) is not None:
         return hit.model_copy(update={"cached": True})
 
-    started = time.perf_counter()
-    with store.connect(settings.data_path, manifest, grant) as con:
-        description, rows, size = run(
-            con, page.sql(), settings.query_timeout_seconds, settings.query_max_result_bytes
+    slots: threading.BoundedSemaphore = request.app.state.query_slots
+    if not slots.acquire(timeout=QUEUE_WAIT_SECONDS):
+        raise ApiError(
+            503,
+            "server_busy",
+            "too many queries are running; try again in a moment",
+            headers={"Retry-After": "1"},
         )
-    elapsed = int((time.perf_counter() - started) * 1000)
+    try:
+        started = time.perf_counter()
+        with store.connect(settings.data_path, manifest, grant) as con:
+            description, rows, size = run(
+                con, page.sql(), settings.query_timeout_seconds, settings.query_max_result_bytes
+            )
+        elapsed = int((time.perf_counter() - started) * 1000)
+    finally:
+        slots.release()
 
     truncated = len(rows) > body.max_rows
     rows = rows[: body.max_rows]

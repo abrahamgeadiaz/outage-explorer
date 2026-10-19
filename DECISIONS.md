@@ -504,7 +504,9 @@ filled in with the step that settles them, in the same commit as the code.
   window, math, dates, common string and list functions), each returning a value at most linear in
   its inputs; anything else is `400 function_not_allowed`. The rows are fetched in batches and a page
   over `QUERY_MAX_RESULT_BYTES` (default 20 MB, text length plus 8 bytes per value) is refused with
-  `400 result_too_large`.
+  `400 result_too_large`. At most `QUERY_MAX_CONCURRENT` queries (default 4) run at once across all
+  users; another waits up to 2 s for a slot, then gets `503 server_busy` with `Retry-After`. A cached
+  result needs no slot.
 - **Rejected:** DuckDB's defaults (80% of RAM and every core for each query), with the 10 s timeout as
   the only limit; and a block-list of the dangerous functions instead of an allow-list.
 - **Why:**
@@ -534,6 +536,11 @@ filled in with the step that settles them, in the same commit as the code.
     Python objects and more as JSON. Batches stop the fetch at the cap instead of after it. One value
     can still reach the 1 GB engine limit before it is measured; with the allowed functions that
     needs an aggregate like `string_agg`, and the concurrency limit bounds how many at once.
+  - The concurrency limit turns the per-query bounds into a bound for the server: 4 queries × 2
+    threads, and at most 4 results being fetched. FastAPI runs sync endpoints on a pool of 40 threads,
+    so without it 40 queries could each take a 1 GB engine (Viewer and Analyst files are separate
+    instances) and 20 MB of rows. Not per user: one user sending 4 slow queries makes others wait or
+    get `503`; a per-user share would be the next step with real traffic.
   - Not covered: an amplifier among the allowed functions that nobody has found yet. The stronger fix
     is to run each query in a worker process that is killed on timeout, with an OS memory cap; I'd do
     that before exposing SQL to untrusted users.

@@ -34,6 +34,7 @@ class Settings(BaseSettings):
     login_window_seconds: float = 300.0
     query_timeout_seconds: float = 10.0  # user SQL is interrupted after this long
     query_max_result_bytes: int = 20_000_000  # a query page larger than this is refused (approx.)
+    query_max_concurrent: int = 4  # user SQL running at once, across all users; more wait, then 503
     query_cache_ttl_seconds: float = 300.0  # 0 disables the query result cache
     query_cache_max_bytes: int = 100_000_000  # approx. size of all cached results (memory bound)
 

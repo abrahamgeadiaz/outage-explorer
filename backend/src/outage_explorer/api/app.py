@@ -2,6 +2,7 @@
 
 import argparse
 import logging
+import threading
 
 import uvicorn
 from fastapi import FastAPI
@@ -27,6 +28,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.login_limiter = LoginLimiter(
         settings.login_max_failures, settings.login_max_failures_per_client, settings.login_window_seconds
     )
+    app.state.query_slots = threading.BoundedSemaphore(settings.query_max_concurrent)
     app.state.query_cache = QueryCache(settings.query_cache_ttl_seconds, settings.query_cache_max_bytes)
     app.state.refresh_jobs = refresh.RefreshJobs(settings, on_new_build=app.state.query_cache.clear)
     install_handlers(app)
