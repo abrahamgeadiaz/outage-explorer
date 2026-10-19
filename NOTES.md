@@ -11,6 +11,7 @@ Running log, kept up to date while building — not written at the end.
 | EIA client (`connector/eia_client.py`) + tests | Claude Code | Reviewed; failure modes chosen from real API probes |
 | Validation, storage, extraction orchestrator, CLI + tests | Claude Code | Reviewed; required-field and failure policies decided by me |
 | Data model build (`model/`), DQ checks, `outage-sql`, FINDINGS.md queries + tests | Claude Code | Reviewed; types, versioning and the US-08 / missing-unit policy decided by me from the data findings |
+| API auth, policy, catalog, preview, serving store (`api/`) + tests | Claude Code | Reviewed; Viewer column grant, role-per-request and the per-grant sandbox decided by me |
 
 ## Things the AI got wrong (and how I caught it)
 
@@ -44,6 +45,16 @@ Running log, kept up to date while building — not written at the end.
    showed there *are* no complete days in that stretch. Every number in FINDINGS.md was re-checked
    against a query before committing.
 
+8. **A sandbox plan that would have let Viewers read generator data.** The plan for the API was "one
+   DuckDB connection with views for the role's tables, file access disabled". Views need to read the
+   Parquet files, so file access has to be allowed for the model folder (`allowed_directories`). A probe
+   showed what that means: `read_parquet('.../fact_generator_daily/...')` then works from any SQL, and a
+   view can't stop it. Caught by trying the bypass before writing the code. Each grant now gets its own
+   read-only DuckDB file holding only its data (DECISIONS.md #21).
+9. **The generated Viewer grant was going to be the whole metric table.** `missing_units` lists units
+   as `'facility/generator'`, which is detail a Viewer must never see. I caught it reading the column
+   list against US-05. The Viewer gets an allow-list of columns without it.
+
 ## How I verified generated code (beyond "it ran")
 
 - **Recorded fixtures, not invented ones.** Test fixtures in `backend/tests/fixtures/eia/` are real
@@ -64,3 +75,17 @@ Running log, kept up to date while building — not written at the end.
 - **Mutation checks on the orchestrator**: watermark advancing on a partial run, no lookback window,
   lock ignored, and writing a chunk whose rows were all rejected. The last one survived at first because
   the storage-level "never wipe with an empty fetch" guard masked it; a first-load test now covers it.
+- **Mutation checks on the API** (each made a test fail): no issuer check, no required claims, the
+  password ignored, an unknown `sub` accepted, the capability check removed, `missing_units` or
+  `dim_facility` granted to Viewers, the column grant ignored, the manifest read before authorization,
+  the serving file writable or with file access on, the wrong grant's file opened, the span filter
+  reversed, start > end allowed, old serving files never pruned. What running them showed:
+  - A mutation that only "failed" because it referenced an unimported name (`NameError`) was not a real
+    detection; I redid it properly.
+  - The file-access mutation made a `COPY` test write `out.csv` into the working directory, so the test
+    now writes to `tmp_path`.
+  - One mutation survives: removing the preview's `ORDER BY`. The model is stored sorted by key, so
+    small data comes back in order anyway; the clause is there for parallel scans on larger data.
+- **API on the real data**: catalog, preview and the Viewer 403 checked against the full model. The
+  River Bend window 2015-02-13..16 returns 2 rows (the known weekend gap), and offset 700,000 of the
+  generator table takes about 60 ms.

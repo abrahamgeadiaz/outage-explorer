@@ -159,13 +159,16 @@ curl -s localhost:8000/api/auth/me -H "Authorization: Bearer <access_token>"
 | `GET /api/auth/me` | logged in | the current user |
 | `GET /api/datasets` | catalog | datasets the caller may see: columns, types, definitions, row counts, filters |
 | `GET /api/datasets/{name}` | catalog | one of them (`403` if not granted, `404` if unknown) |
+| `GET /api/datasets/{name}/rows` | preview | rows filtered by `start`, `end` (dates, inclusive) and `facility_id` (repeatable), ordered by key; `limit` ≤ 1000, `offset`, `total` |
 | `GET /api/health` | none | liveness and the model build being served |
 
 Viewers see `fact_national_daily` and `metric_fleet_offline_daily` (without `missing_units`, which
-names units) and nothing else (DECISIONS.md #20).
+names units) and nothing else (DECISIONS.md #20). Requests read a copy of the model that holds
+only the caller's datasets, opened read-only with file access off (`data/serve/`, DECISIONS.md #21).
 
 Every error has the same shape, `{"error": {"code": "...", "message": "..."}}`: `401 unauthenticated`
-(no, invalid or expired token), `401 invalid_credentials`, `403 forbidden`, `404 dataset_not_found`, `422 invalid_request`,
+(no, invalid or expired token), `401 invalid_credentials`, `403 forbidden`, `400 filter_not_supported` / `invalid_filter`,
+`404 dataset_not_found`, `422 invalid_request`,
 `503 model_not_built`.
 
 ## Documents

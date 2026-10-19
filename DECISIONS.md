@@ -287,3 +287,42 @@ _Pending: decided in step 6 (query path)._
     disagree about what a role may see.
 
   Where it lives: `api/policy.py`; enforced in `api/catalog.py` (`visible_columns`).
+
+### 21. Requests read a per-grant, read-only DuckDB file, not the Parquet model
+
+- **Choice:** for each distinct grant, the API copies the live build's granted tables and columns
+  into `data/serve/<build_id>/<grant_hash>.duckdb`. That takes about 1 s, done once per build. Each
+  request opens that file with `read_only=True`, `enable_external_access=false` and
+  `lock_configuration=true`. A Viewer's file contains only national rows. Analyst and Admin have the
+  same grant, so they share one file.
+- **Rejected:** one connection with views over the Parquet files, restricted with DuckDB's
+  `allowed_directories`.
+- **Why:**
+  - I tried that first. To let the views read the model, the model folder must be allowed, and then
+    `SELECT * FROM read_parquet('.../fact_generator_daily/...')` works for anyone, Viewers included.
+    A view can hide a column, but it can't stop SQL from reading the file behind it.
+  - With the per-grant file, the data a role may not see isn't in the database it's connected to.
+    The checks in code (grants now, the SQL parser in step 6) are the first line of defense; this is
+    the second, and it holds even if one of them has a bug. Tests run `CREATE`, `DELETE`, `SET`,
+    `ATTACH`, `COPY` and `read_parquet` on a Viewer connection and expect each to fail.
+  - The grant hash is part of the file name, so a change to `policy.py` takes effect on the next
+    request, with no stale copy served. The build id is part of it too, so a refresh does the same.
+  - Cost: one copy of the model per distinct grant (15 MB for the full one, 0.8 MB for the Viewer).
+    At much larger volumes I'd keep one database and give each role its own schema of views.
+
+  Where it lives: `api/store.py`.
+
+### 22. Preview: filters as bound parameters, offset pagination with a total
+
+- **Choice:** `GET /api/datasets/{name}/rows?start=&end=&facility_id=&limit=&offset=`. Filters are
+  checked against the dataset's granted columns: a filter the dataset doesn't support is a `400`, not
+  ignored. For tables with a date span (`dim_*`, `dq_issue`), the date filter keeps rows overlapping it.
+  Results are ordered by primary key. `limit` is at most 1,000. The response includes `total` for the
+  filters and `has_more`.
+- **Rejected:** keyset (cursor) pagination.
+- **Why:** the web app's table needs "page N of M" and jumping to a page, which needs `total` and an
+  offset. On the real data, offset 700,000 of the 713,327 generator rows takes about 60 ms. Keyset
+  would matter at much larger volumes, or if rows could be inserted between page requests; here a
+  build never changes, and each response says which `build_id` it read.
+
+  Where it lives: `api/preview.py`.
