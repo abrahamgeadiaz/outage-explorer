@@ -7,6 +7,7 @@ import { RequireAuth } from "./auth/RequireAuth";
 import { SessionProvider } from "./auth/session";
 import { Layout } from "./components/Layout";
 import { Empty } from "./components/States";
+import { DatasetPage } from "./pages/DatasetPage";
 import { DatasetsPage } from "./pages/DatasetsPage";
 import { LoginPage } from "./pages/LoginPage";
 
@@ -21,6 +22,7 @@ export const routes: RouteObject[] = [
     children: [
       { index: true, element: <Navigate to="/datasets" replace /> },
       { path: "/datasets", element: <DatasetsPage /> },
+      { path: "/datasets/:name", element: <DatasetPage /> },
       { path: "*", element: <Empty>Page not found.</Empty> },
     ],
   },
