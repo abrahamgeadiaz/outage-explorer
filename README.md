@@ -16,17 +16,84 @@ Explore and query U.S. nuclear outage data from the [EIA Open Data API](https://
 
 Python 3.13 · uv · httpx · DuckDB · Parquet · FastAPI · sqlglot · React · TypeScript · Vite
 
-## Setup
+## Architecture
 
-Requirements: [uv](https://docs.astral.sh/uv/) (it installs the right Python itself) and a free
-[EIA API key](https://www.eia.gov/opendata/register.php).
+```
+EIA API ──► connector ──► data/raw/<dataset>/year=YYYY/data.parquet        (outage-extract)
+                              │
+                              ▼
+            model build ──► data/model/builds/<id>/ + current.json          (outage-model)
+                              │   facts, dimensions, US-08 metric, dq_issue
+                              ▼
+            serving files ─► data/serve/<build>/<grant>.duckdb   one read-only copy per role grant
+                              ▲
+     FastAPI (outage-api) ────┘   auth · policy · catalog · preview · SQL · refresh job
+                              ▲
+     React web app ───────────┘   /api through the Vite dev proxy (one origin, no CORS)
+```
+
+- **Storage is files.** Parquet for raw extracts and model builds; DuckDB runs inside the process to
+  build and query them (DECISIONS.md #7). A build is written to a new folder and `current.json`
+  switches to it atomically, so readers never see a half-written model (#15).
+- **Every request is authorized by one policy module** (`api/policy.py`): capabilities per role decide
+  which endpoints it may call; column-level allow-lists decide which data it may see (#20).
+- **The data a role may not see isn't in the database it queries.** Each grant gets its own
+  read-only DuckDB file holding only its tables and columns, opened with file access off, the
+  configuration locked and memory and threads capped (#21, #27).
+- **A SQL query** goes: access token → `query` capability → `sqlguard` (one `SELECT`, plain table
+  names, allow-listed functions, every table resolved through CTEs and subqueries) → every table
+  checked against the grant → cache lookup → one of 4 query slots → the SQL *regenerated from the
+  checked tree* runs on the caller's serving file, with the page merged into its `LIMIT`, a 10 s
+  timeout and a 20 MB result cap (#5, #6, #23, #24, #27).
+- **Refresh** is an Admin-only background job: extract incrementally, rebuild the model, clear the
+  query cache; the next request reads the new build (#4).
+
+```
+backend/src/outage_explorer/
+  connector/   EIA client (paging, retries), validation, Parquet storage, extraction runs
+  model/       table definitions, model build, data quality checks, outage-sql
+  api/         FastAPI app: auth, users, policy, catalog, preview, sqlguard, query, cache, store, refresh
+frontend/src/  API client, session, pages (datasets, dataset, fleet/US-08, SQL, refresh), tests
+analysis/      findings.sql and the A1 check behind FINDINGS.md
+```
+
+## Quick start
+
+Requirements: [uv](https://docs.astral.sh/uv/) (it installs the right Python itself), Node 20+ and a
+free [EIA API key](https://www.eia.gov/opendata/register.php).
 
 ```bash
 cp .env.example .env          # then set EIA_API_KEY and JWT_SECRET (signs API tokens)
 cd backend
 uv sync                       # creates .venv with all dependencies
 uv run pytest                 # all tests run offline against recorded EIA responses
+uv run outage-extract --full  # first load: every day since 2007 (~40 min, EIA is slow; resumable)
+uv run outage-model           # build the model (~25 s)
+uv run outage-api             # API on http://127.0.0.1:8000
+
+cd ../frontend                # in a second terminal
+npm install
+npm run dev                   # web app on http://localhost:5173
 ```
+
+Sign in with a [test user](#test-users), for example `analyst` / `analyst-demo-pass`. After the
+first load, `uv run outage-extract` (or Refresh as `admin` in the web app) only fetches what changed.
+
+### Configuration
+
+Set in `.env` (see `.env.example`) or the environment. Only the first two are required.
+
+| Variable | Default | What it does |
+|---|---|---|
+| `EIA_API_KEY` | none | EIA Open Data key (sent as a query parameter; masked in every log) |
+| `JWT_SECRET` | none | signs access tokens; at least 32 characters or the API refuses to start |
+| `DATA_DIR` | `./data` | raw extracts, model builds, serving files, run metadata |
+| `EIA_MAX_CONCURRENCY`, `EIA_MAX_RETRIES`, `EIA_TIMEOUT_SECONDS` | 3, 5, 180 | connector parallelism and retries |
+| `REFRESH_LOOKBACK_DAYS` | 30 | incremental runs re-fetch this many days before the watermark |
+| `JWT_TTL_MINUTES` | 60 | access token lifetime |
+| `LOGIN_MAX_FAILURES`, `LOGIN_MAX_FAILURES_PER_CLIENT`, `LOGIN_WINDOW_SECONDS` | 5, 20, 300 | login rate limit |
+| `QUERY_TIMEOUT_SECONDS`, `QUERY_MAX_RESULT_BYTES`, `QUERY_MAX_CONCURRENT` | 10, 20 MB, 4 | limits on user SQL |
+| `QUERY_CACHE_TTL_SECONDS`, `QUERY_CACHE_MAX_BYTES` | 300, 100 MB | query result cache (`0` disables) |
 
 ## Data connector
 
@@ -176,9 +243,10 @@ table functions (`read_parquet`...), file paths and functions outside an allow-l
 are rejected. Results come `max_rows` (≤ 5000) at
 a time; send `offset = next_offset` for the next page (stable when the query has an `ORDER BY`).
 Queries stop after 10 s (`QUERY_TIMEOUT_SECONDS`), and a page larger than 20 MB is refused
-(`QUERY_MAX_RESULT_BYTES`). At most 4 queries run at once (`QUERY_MAX_CONCURRENT`); past that, `503 server_busy`. Results are cached
-for 5 minutes per role grant and model build (`cached: true` in the response; `QUERY_CACHE_TTL_SECONDS`,
-`QUERY_CACHE_MAX_BYTES`, `0` disables), and every refresh clears the cache (DECISIONS.md #24). See DECISIONS.md #5 and #6.
+(`QUERY_MAX_RESULT_BYTES`). At most 4 queries run at once (`QUERY_MAX_CONCURRENT`); past that,
+`503 server_busy`. Results are cached for 5 minutes per role grant and model build (`cached: true` in
+the response; `QUERY_CACHE_TTL_SECONDS`, `QUERY_CACHE_MAX_BYTES`, `0` disables), and every refresh
+clears the cache (DECISIONS.md #24). See DECISIONS.md #5 and #6.
 
 ```bash
 curl -s -X POST localhost:8000/api/query -H "Authorization: Bearer <access_token>" \
@@ -192,12 +260,13 @@ or `interrupted`. `GET /api/refresh` lists recent jobs. An incremental refresh t
 build is served from the next request (DECISIONS.md #4).
 
 Every error has the same shape, `{"error": {"code": "...", "message": "..."}}`: `401 unauthenticated`
-(no, invalid or expired token), `401 invalid_credentials`, `403 forbidden`, `429 rate_limited` (5 failed logins for a username from one address, or 20 from one
-address, within 5 minutes; `Retry-After` says when to try again), `400 filter_not_supported` / `invalid_filter`,
+(no, invalid, expired or signed-out token), `401 invalid_credentials`, `403 forbidden`, `429 rate_limited`
+(5 failed logins for a username from one address, or 20 from one address, within 5 minutes;
+`Retry-After` says when to try again), `400 filter_not_supported` / `invalid_filter`,
 `400` SQL rejections (`read_only`, `one_statement_only`, `function_not_allowed`, `source_not_allowed`,
-`unknown_table`, `syntax_error`, `query_error`, `result_too_large`), `408 query_timeout`, `409 refresh_in_progress`,
-`404 dataset_not_found`, `422 invalid_request`,
-`503 model_not_built`, `503 server_busy`.
+`unknown_table`, `syntax_error`, `query_error`, `result_too_large`), `408 query_timeout`,
+`409 refresh_in_progress`, `404 dataset_not_found`, `422 invalid_request`, `503 model_not_built`,
+`503 server_busy`.
 
 ## Web app
 
@@ -222,12 +291,61 @@ Sign in with one of the test users above. What each screen does:
 | Refresh | Admin | start an incremental or full refresh, follow its steps, see rows, the new build, DQ findings or why it failed |
 
 The session survives reloads (token in `localStorage`, checked with `/api/auth/me`). Sign out revokes
-the token on the server too; when it expires, you're signed out with a notice. Hiding links is only a convenience: every request is authorized by
-the API (DECISIONS.md #26).
+the token on the server too; when it expires, you're signed out with a notice. Hiding links is only a
+convenience: every request is authorized by the API (DECISIONS.md #26).
+
+## Assumptions
+
+- **EIA is the source of truth, grain by grain.** Values are stored as EIA sends them; one grain is
+  never rewritten from another. On the real data the grains agree exactly, so a future mismatch is
+  reported (`dq_issue`), not repaired (DECISIONS.md #3).
+- **A unit missing from every grain on a day is unknown, not offline and not zero.** US-08 uses EIA's
+  own denominator (the units reported that day) and shows what is missing beside it, with a min–max
+  range, instead of filling the gap (#17).
+- **Natural keys** are `period`, `(period, facility)` and `(period, facility, generator)`. Ids stay
+  strings as EIA sends them (#1). Days are EIA's calendar days; there is no time of day or time zone.
+- **EIA revises recent days only.** Incremental runs re-fetch the last 30 days. Two re-fetches so far
+  found no revisions at all, so the window is an assumption, not a measurement (#2, FINDINGS.md).
+- **Capacity steps on Apr 1 and Oct 1 are real** (summer and winter ratings), and a unit that stops
+  being reported has retired or is out of service: EIA publishes no marker for either (FINDINGS.md A5, A7).
+- **"National trends only" for Viewers** means the national table and the fleet metric, without the
+  one column that names units (`missing_units`). Every other table is keyed by facility or generator,
+  so Viewers don't get it (#20).
+- **The users are known staff.** Three seeded users (one per persona) are enough for this version, as
+  the brief allows. SQL is for signed-in users, not the open internet (#19, #27).
+- **One server, local use.** The API runs as one process on one machine, which is what makes the
+  in-memory state below acceptable.
+
+## Known limitations
+
+- **State is per process and in memory:** the login rate limiter, the query cache, revoked tokens and
+  the refresh job's "one at a time" check (the connector's file lock backs it up). Several API workers
+  would need a shared store (Redis) for each, and a restart forgets them (#4, #19, #24, #25).
+- **Refresh runs in a thread of the API process**, not a task queue. A job running when the server
+  stops is reported as `interrupted`, and the next refresh fetches its window again (#4).
+- **No production deployment.** The web app runs on the Vite dev server, which proxies `/api`. There is
+  no HTTPS, no security headers (CSP) and no request body limit; those belong to the reverse proxy that
+  would serve the built app and the API together. The token is in `localStorage` rather than an
+  httpOnly cookie (#26).
+- **Users live in code**, with no user management, password change or refresh token; login would move
+  to an identity provider (OIDC) in production (#19).
+- **User SQL is contained, not isolated.** Engine limits, a function allow-list, a result cap and 4
+  query slots bound what one query can take, but a query doesn't run in a separate process that could
+  be killed, and the slots are shared by all users, so one user can make others wait. Some DuckDB
+  functions are refused on purpose (`lpad`, `generate_series`, `printf`...) (#27).
+- **Paging re-runs the query.** SQL pages line up only when the query has an `ORDER BY` over a unique
+  key and the build doesn't change between pages; the response says both (`ordered`, `build_id`) (#23).
+- **Raw history is overwritten.** A re-fetched window replaces the stored values and the previous ones
+  are not kept (model builds keep the last 3). New EIA fields are reported (`unknown_fields`), not added
+  to the schema automatically.
+- **The first full load is slow** (~40 minutes): facility and generator pages take 10–60 s each and EIA
+  often answers 504. It is resumable: a failed window is fetched again on the next run (#12).
+- **Login rate limiting is per connection address.** Behind a reverse proxy it needs the proxy's real
+  client address, and an attacker with many addresses is not stopped (#25).
 
 ## Documents
 
 - `DECISIONS.md`: open design questions, choices and rejected alternatives
 - `FINDINGS.md`: reconciliation results and data anomalies (queries in `analysis/`)
 - `docs/model.md`: ER diagram, keys, types, notes for larger volumes
-- `NOTES.md`: engineering notes (AI usage, verification)
+- `NOTES.md`: engineering notes (AI usage, what the AI got wrong, verification)
