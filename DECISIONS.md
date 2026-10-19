@@ -265,3 +265,25 @@ _Pending: decided in step 6 (query path)._
     code (`api/users.py`); swapping in a database or an OIDC provider only touches `auth.py` and `users.py`.
 
   Where it lives: `api/auth.py`, `api/users.py`, `api/policy.py` (role → capabilities).
+
+### 20. Authorization: one policy module, with allow-lists down to the column
+
+- **Choice:** `api/policy.py` holds every rule. Capabilities decide which endpoints a role may call.
+  Dataset grants decide which tables, and which columns of each, a role may see. The Viewer gets
+  `fact_national_daily` and `metric_fleet_offline_daily` **without `missing_units`**: that column lists
+  units as `'facility_id/generator_id'`, which is generator-level detail. Every endpoint resolves the
+  caller's grant before it reads anything, including the build manifest.
+- **Rejected:** table-level grants only, with Viewers simply denied the US-08 metric table.
+- **Why:**
+  - US-08 is a national number and Viewers follow national trends, so they should have it. Only one
+    column of it is detail, and column grants are what let them have the rest.
+  - The Viewer's columns are listed, not excluded: a column added to the metric later stays hidden from
+    Viewers until someone grants it. Tests check that every grant names real tables and columns, and that
+    no Viewer column identifies a plant or unit.
+  - A forbidden dataset is a `403`, an unknown one a `404`. The table names are in the README and give
+    nothing away, and a 403 lets the web app show "not allowed" instead of "not found". A 403 never
+    includes the table's columns.
+  - The catalog, the preview and (step 6) the query path all read these same grants, so they can't
+    disagree about what a role may see.
+
+  Where it lives: `api/policy.py`; enforced in `api/catalog.py` (`visible_columns`).

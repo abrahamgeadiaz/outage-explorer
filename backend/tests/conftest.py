@@ -13,7 +13,7 @@ from outage_explorer.api.app import create_app
 from outage_explorer.config import Settings
 from outage_explorer.connector.routes import ROUTES
 from outage_explorer.connector.validate import schema_for
-from outage_explorer.model.build import table_globs
+from outage_explorer.model.build import build_model, table_globs
 
 FIXTURES = Path(__file__).parent / "fixtures" / "eia"
 
@@ -146,6 +146,23 @@ def api_settings(tmp_path):
 def client(api_settings):
     with TestClient(create_app(api_settings)) as c:
         yield c
+
+
+API_DAYS = [date(2015, 10, 1), date(2015, 10, 2), date(2015, 10, 3)]
+API_UNITS = {("6462", "1"): 967.0, ("46", "1"): 1000.0, ("46", "2"): 1100.0}
+
+
+@pytest.fixture
+def api_model(api_settings, write_fleet):
+    """A small built model: 2 facilities, 3 units, 3 days; River Bend 6462/1 missing on the 2nd day."""
+    rows = fleet_rows(
+        API_UNITS,
+        API_DAYS,
+        outages={(API_DAYS[0], "46", "2"): 550.0},
+        missing={(API_DAYS[1], "6462", "1")},
+    )
+    write_fleet(rows)
+    return build_model(api_settings)
 
 
 def auth_headers(client: TestClient, username: str) -> dict[str, str]:
