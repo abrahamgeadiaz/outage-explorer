@@ -26,6 +26,9 @@ class Settings(BaseSettings):
     eia_start_date: date = date(2007, 1, 1)  # startPeriod reported by the route metadata
     refresh_lookback_days: int = 30  # incremental runs re-fetch this many days before the watermark
     data_dir: Path = Path("./data")
+    # Signs the API's access tokens. The app refuses to start without one (api/auth.py).
+    jwt_secret: SecretStr = SecretStr("")
+    jwt_ttl_minutes: int = 60
 
     @property
     def data_path(self) -> Path:

@@ -3,7 +3,8 @@
 Explore and query U.S. nuclear outage data from the [EIA Open Data API](https://www.eia.gov/opendata/)
 (national, facility and generator grains) without exporting it into spreadsheets by hand.
 
-> Status: work in progress. The data connector (Part 1) and the data model (Part 2) are done; the API and web app follow.
+> Status: work in progress. The data connector (Part 1) and the data model (Part 2) are done; the API (Part 3) is
+> being built; the web app follows.
 
 ## Parts
 
@@ -22,7 +23,7 @@ Requirements: [uv](https://docs.astral.sh/uv/) (it installs the right Python its
 [EIA API key](https://www.eia.gov/opendata/register.php).
 
 ```bash
-cp .env.example .env          # then set EIA_API_KEY (and JWT_SECRET, used by the API later)
+cp .env.example .env          # then set EIA_API_KEY and JWT_SECRET (signs API tokens)
 cd backend
 uv sync                       # creates .venv with all dependencies
 uv run pytest                 # all tests run offline against recorded EIA responses
@@ -128,6 +129,32 @@ what is left out, and `is_complete` is false (DECISIONS.md #17).
 | `value_out_of_range` | error | negative values, outage > capacity |
 | `unit_lifecycle` | info | a unit first reported late, or no longer reported |
 | `duplicate_keys` | warning | raw rows sharing a natural key (latest kept) |
+
+## API
+
+```bash
+cd backend
+uv run outage-api             # http://127.0.0.1:8000, interactive OpenAPI docs at /docs
+```
+
+### Test users
+
+One seeded user per persona (demo passwords, for local use only; only their hashes are in the code):
+
+| Username | Password | Role | Can |
+|---|---|---|---|
+| `analyst` | `analyst-demo-pass` | Analyst | catalog, preview, SQL on every dataset |
+| `viewer` | `viewer-demo-pass` | Viewer | the same, national datasets only |
+| `admin` | `admin-demo-pass` | Admin | everything an Analyst can, plus refresh |
+
+```bash
+curl -s -X POST localhost:8000/api/auth/login -H 'Content-Type: application/json'      -d '{"username": "analyst", "password": "analyst-demo-pass"}'
+# -> {"access_token": "...", "token_type": "bearer", "expires_in": 3600, "user": {...}}
+curl -s localhost:8000/api/auth/me -H "Authorization: Bearer <access_token>"
+```
+
+Every error has the same shape, `{"error": {"code": "...", "message": "..."}}`: `401 unauthenticated`
+(no, invalid or expired token), `401 invalid_credentials`, `403 forbidden`, `422 invalid_request`.
 
 ## Documents
 

@@ -244,3 +244,24 @@ _Pending: decided in step 6 (query path)._
   - The build still fails on what *we* would get wrong: a duplicate key or an orphan row (#15).
 
   Where it lives: `model/quality.py`, `dq_issue` in `model/tables.py`.
+
+### 19. Authentication: short-lived signed tokens; the role is looked up on every request
+
+- **Choice:** `POST /api/auth/login` checks the password (scrypt, salted) against three seeded users
+  and returns an HS256 JWT valid for 60 minutes. The token holds only who the user is (`sub`), the
+  issuer and the expiry. Every request decodes it with the algorithm pinned and those claims required,
+  then reads the user's role from the user store.
+- **Rejected:** putting the role in the token and trusting it.
+- **Why:**
+  - With the role in the token, demoting a user (Analyst → Viewer) would not take effect until the
+    token expired. Here it takes effect on the next request, which matters for US-05.
+  - A token can't be used to escalate: changing `sub` or anything else breaks the signature.
+    `alg: none`, a wrong issuer, a missing `exp` and a deleted user are all rejected (tests cover each).
+  - Login gives one answer for an unknown user and a wrong password. For an unknown user it still
+    runs the hash check, so the response time doesn't reveal which usernames exist.
+  - The app refuses to start without a `JWT_SECRET` of at least 32 characters, instead of signing
+    tokens with an empty key.
+  - Simplified, as the brief allows: there is no refresh token, logout or rate limiting. Users live in
+    code (`api/users.py`); swapping in a database or an OIDC provider only touches `auth.py` and `users.py`.
+
+  Where it lives: `api/auth.py`, `api/users.py`, `api/policy.py` (role → capabilities).

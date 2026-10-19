@@ -7,7 +7,10 @@ import duckdb
 import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
+from fastapi.testclient import TestClient
 
+from outage_explorer.api.app import create_app
+from outage_explorer.config import Settings
 from outage_explorer.connector.routes import ROUTES
 from outage_explorer.connector.validate import schema_for
 from outage_explorer.model.build import table_globs
@@ -126,3 +129,27 @@ def query_model(settings, sql: str) -> list[tuple]:
     for name, glob in table_globs(settings.data_path).items():
         con.execute(f"CREATE VIEW {name} AS SELECT * FROM read_parquet('{glob}', hive_partitioning = true)")
     return con.execute(sql).fetchall()
+
+
+# --- API -----------------------------------------------------------------------------------------
+
+TEST_JWT_SECRET = "test-only-secret-" + "x" * 32
+PASSWORDS = {"analyst": "analyst-demo-pass", "viewer": "viewer-demo-pass", "admin": "admin-demo-pass"}
+
+
+@pytest.fixture
+def api_settings(tmp_path):
+    return Settings(data_dir=tmp_path, jwt_secret=TEST_JWT_SECRET)
+
+
+@pytest.fixture
+def client(api_settings):
+    with TestClient(create_app(api_settings)) as c:
+        yield c
+
+
+def auth_headers(client: TestClient, username: str) -> dict[str, str]:
+    """Log in as a seeded user through the real endpoint and return the Authorization header."""
+    resp = client.post("/api/auth/login", json={"username": username, "password": PASSWORDS[username]})
+    assert resp.status_code == 200, resp.text
+    return {"Authorization": f"Bearer {resp.json()['access_token']}"}
