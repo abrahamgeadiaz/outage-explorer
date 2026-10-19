@@ -13,6 +13,7 @@ Running log, kept up to date while building — not written at the end.
 | Data model build (`model/`), DQ checks, `outage-sql`, FINDINGS.md queries + tests | Claude Code | Reviewed; types, versioning and the US-08 / missing-unit policy decided by me from the data findings |
 | Web app (`frontend/`): session, routes, dataset, SQL, refresh and US-08 pages + component tests | Claude Code | Reviewed; screens checked in a real browser against the real API |
 | API auth, policy, catalog, preview, serving store, SQL guard, query, refresh jobs (`api/`) + tests | Claude Code | Reviewed; Viewer column grant, role-per-request and the per-grant sandbox decided by me |
+| Security review of the whole repo, and the resource-limit fixes (DECISIONS.md #27) + tests | Claude Code | Reviewed; allow-list over block-list decided by me; scope and order of fixes chosen by me |
 
 ## Things the AI got wrong (and how I caught it)
 
@@ -78,6 +79,21 @@ Running log, kept up to date while building — not written at the end.
 14. **Retrying a state that can't fix itself.** The first query client retried every 5xx. `503
     model_not_built` lasts until an Admin refreshes, so users waited through the backoff to see "No data
     yet". The test for that screen timed out, which is how I found it.
+
+15. **A SQL sandbox that bounded time but not memory.** The generated query path had a 10 s timeout
+    and a 5,000-row cap, and it looked complete. A security review of the whole repo, probing the
+    real guard and sandbox, showed what was missing: DuckDB ran each query with 80% of RAM and every
+    core, `SELECT length(repeat('x', 500000000))` built 500 MB in 2.5 s for any role (Viewer
+    included), and 5,000 rows of 1 MB strings would have gone into Python and JSON. The query cache
+    was also bounded by rows, not size. Fixed with engine limits, a result size cap, a cache budget in
+    bytes and a limit of 4 concurrent queries (DECISIONS.md #27).
+16. **The first fix for it was not enough.** Setting DuckDB's `memory_limit` seemed to close the hole.
+    Probing it showed that the limit counts memory held by operators (sorts, aggregates), not a single
+    value built by a scalar function, and that an interrupt waits for that function to return:
+    `repeat('x', 2e9)` still took 2 GB, and `range(1e9)` held a query for 50 s and ~8 GB past a 3 s
+    interrupt. Almost every further probe found another amplifier (`lpad`, a width in `printf`, nested
+    `replace`: 1 GB from 3 KB of SQL). A block-list would only have lasted until the next one, so the
+    guard now accepts only an allow-list of 144 functions whose output is at most linear in their input.
 
 ## How I verified generated code (beyond "it ran")
 
@@ -155,3 +171,15 @@ Running log, kept up to date while building — not written at the end.
   persona against the real API and Vite, then screenshots every screen in light, dark and phone
   width. That's how I found the invisible band (#12) and two layout problems on phones: summary tiles
   one per row, and a legend swatch wrapping away from its label.
+- **Security review** (2026-10-18): 21 bypass probes run against the real `sqlguard` and a sandboxed
+  connection (file reads, system catalogs, table functions, aliases, `PIVOT`/`SHOW`): all rejected or
+  harmless. `npm audit` and `pip-audit` found no known vulnerabilities, and the git history holds no
+  secrets. Then about 25 resource probes, each timed under a memory limit, to see which functions
+  escape it (#15, #16). Each amplifier found is now a test that must be rejected, and a list of
+  everyday expressions (`strftime`, `string_agg`, `FILTER`, window functions...) is a test that must
+  still pass, together with the 15 FINDINGS.md queries.
+- **Mutation checks on the resource limits** (each made a test fail): the memory limit and no-spill
+  setting removed, the result size check disabled, the cache costed by row count instead of size, a
+  query slot never released after an error, the slot never acquired. My first result-cap test never
+  reached the check: the test model has 8 rows, so the "big" query stayed under the cap and came back
+  200. It now pads each row to go past a small cap.
