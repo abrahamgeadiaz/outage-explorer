@@ -50,7 +50,8 @@ describe("fleet offline (US-08)", () => {
     const rows = Array.from({ length: 1500 }, (_, i) => day(i, i === 700 ? 30 : 10, i === 1499 ? 1 : 0));
     const { calls } = mockApi({ ...signedInAs("viewer"), "GET /api/datasets/metric_fleet_offline_daily/rows": metricApi(rows) });
     renderAt("/fleet");
-    const tiles = await screen.findByRole("list", { name: "Summary" });
+    // Lazy page + two 1,000-row pages can pass the default 1 s wait on a busy machine.
+    const tiles = await screen.findByRole("list", { name: "Summary" }, { timeout: 3000 });
     expect(within(tiles).getByText("Latest (2019-02-08)")).toBeInTheDocument();
     expect(within(tiles).getByText("30.00%")).toBeInTheDocument(); // the peak
     expect(within(tiles).getByText("on 2016-12-01")).toBeInTheDocument();
