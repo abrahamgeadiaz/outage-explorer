@@ -101,6 +101,7 @@ switches to it atomically, so readers never see a half-written model. The newest
 | `dim_facility` | `facility_id` | plant name, first and last day reported, units, status |
 | `dim_generator` | `facility_id, generator_id` | unit lifetime, reported and missing days, latest capacity, status |
 | `metric_fleet_offline_daily` | `period` | **US-08**: % of fleet capacity offline, plus missing units and a min/max range |
+| `dq_issue` | `issue_id` | data quality findings from the checks run on every build |
 
 MW values are `DECIMAL(12,3)`, so the grains add up exactly. `percent_outage` is recomputed from MW
 (NULL when capacity is 0). EIA's rounded value is kept as `percent_outage_eia`. Column descriptions
@@ -110,6 +111,19 @@ live in `backend/src/outage_explorer/model/tables.py`.
 day, which matches EIA's national percentage. Some days a unit is missing from every grain: it is
 not filled in. `missing_units`, `missing_capacity_mw` and `offline_pct_min`/`offline_pct_max` show
 what is left out, and `is_complete` is false (DECISIONS.md #17).
+
+**Data quality checks** run on every build and write `dq_issue` (counts are also in `current.json`):
+
+| Check | Severity | Catches |
+|---|---|---|
+| `grain_mismatch_national` | error | national ≠ Σ facility or Σ generator for a day, or a grain missing a day |
+| `grain_mismatch_facility` | error | a facility ≠ Σ its generators, or one side missing |
+| `unit_reporting_gap` | warning | a unit absent from every grain inside its lifetime (with the MW at stake) |
+| `non_positive_capacity` | error / warning | capacity ≤ 0; an error when EIA still reports an outage or percentage |
+| `percent_mismatch` | error | EIA's percentage off by more than its rounding |
+| `value_out_of_range` | error | negative values, outage > capacity |
+| `unit_lifecycle` | info | a unit first reported late, or no longer reported |
+| `duplicate_keys` | warning | raw rows sharing a natural key (latest kept) |
 
 ## Documents
 

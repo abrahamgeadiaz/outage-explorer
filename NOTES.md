@@ -33,6 +33,9 @@ Running log, kept up to date while building — not written at the end.
    so the newest build, the one `current.json` points to, could be deleted. Caught by a test that runs
    three builds in a row and checks which folders remain; it failed on the first run. Fixed with
    microseconds in the id and a guard that never prunes the current build.
+6. **A data quality check whose test passed for the wrong reason.** The reporting-gap test used a 2-day
+   gap. A mutation check (`> 1` changed to `> 2`, so 1-day gaps are no longer reported) still passed.
+   The real data has 1-day gaps (River Bend, 2015-10-14), so I added a 1-day test; the mutation now fails.
 
 ## How I verified generated code (beyond "it ran")
 
@@ -43,6 +46,14 @@ Running log, kept up to date while building — not written at the end.
   removing `from None` on timeouts, retrying 403s, stopping pagination only on an empty page, and
   removing the log filter. The first round showed the timeout case was *not* covered (all tests still
   passed), so I added the missing test.
+- **Model checked against the real data, not only fixtures.** After each model commit I rebuilt the
+  model on the full history and compared it with the independent exploration queries. The grains
+  reconcile to exactly `0.000` MW. `offline_pct` matches EIA's national percentage within 0.005 on all
+  7,229 days. The DQ checks report the same units and dates the manual queries found.
+- **Mutation checks on the model**: removing the dedupe step (the PRIMARY KEY must stop the build),
+  pointing the ASOF join at the rating *after* a gap, weakening the gap rule, and dropping the
+  "percentage without capacity is an error" rule. A test failed every time, after adding the 1-day
+  gap test above.
 - **Mutation checks on the orchestrator**: watermark advancing on a partial run, no lookback window,
   lock ignored, and writing a chunk whose rows were all rejected. The last one survived at first because
   the storage-level "never wipe with an empty fetch" guard masked it; a first-load test now covers it.

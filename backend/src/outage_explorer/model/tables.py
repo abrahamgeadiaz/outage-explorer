@@ -172,7 +172,37 @@ METRIC_FLEET_OFFLINE = Table(
     foreign_keys={("period",): "fact_national_daily"},
 )
 
+DQ_ISSUE = Table(
+    "dq_issue",
+    "Data quality findings from the checks run on every build (model/quality.py). Runs of "
+    "consecutive days are one row. The product reports these; it does not correct EIA's values.",
+    "one row per finding",
+    ("issue_id",),
+    (
+        Column("issue_id", "INTEGER", "Row number within this build (not stable across builds)."),
+        Column("check_name", "VARCHAR", "Which check found it, e.g. 'unit_reporting_gap'."),
+        Column("severity", "VARCHAR", "'error' (values contradict), 'warning' (incomplete) or 'info'."),
+        Column("dataset", "VARCHAR", "Grain the finding is about: national, facility or generator."),
+        Column("facility_id", "VARCHAR", "Facility, when the finding is about one."),
+        Column("generator_id", "VARCHAR", "Generator, when the finding is about one."),
+        Column("period_start", "DATE", "First day affected."),
+        Column("period_end", "DATE", "Last day affected."),
+        Column("days", "INTEGER", "Days affected (period_end - period_start + 1)."),
+        Column("value_reported", "DOUBLE", "The value EIA reported (meaning depends on the check)."),
+        Column("value_expected", "DOUBLE", "The value it should match, or the MW at stake."),
+        Column("detail", "VARCHAR", "Human-readable description."),
+    ),
+)
+
 TABLES: dict[str, Table] = {
     t.name: t
-    for t in (DIM_FACILITY, DIM_GENERATOR, FACT_NATIONAL, FACT_FACILITY, FACT_GENERATOR, METRIC_FLEET_OFFLINE)
+    for t in (
+        DIM_FACILITY,
+        DIM_GENERATOR,
+        FACT_NATIONAL,
+        FACT_FACILITY,
+        FACT_GENERATOR,
+        METRIC_FLEET_OFFLINE,
+        DQ_ISSUE,
+    )
 }

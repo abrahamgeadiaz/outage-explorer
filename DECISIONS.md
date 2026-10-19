@@ -45,7 +45,26 @@ filled in with the step that settles them, in the same commit as the code.
 
 ### 3. A generator whose facility is missing from the facility route, or whose values don't add up
 
-_Pending: decided in step 4 (data model & reconciliation), based on what the real rows show._
+- **Choice:** keep every grain exactly as EIA publishes it and report the disagreement; never rewrite one
+  grain from another. The `grain_mismatch_facility` check writes one `dq_issue` row per (day, facility)
+  in these cases:
+  - generators reported but no facility row;
+  - a facility row with no generators;
+  - facility capacity or outage ≠ the sum of its generators, with the gap in MW.
+
+  `grain_mismatch_national` does the same between national and the other two grains. US-08 is computed
+  from the generator grain (`metric_fleet_offline_daily`), so a missing facility row never changes it.
+- **Rejected:** rebuilding `fact_facility_daily` as the sum of generators, so the grains always agree.
+- **Why:**
+  - The real data has **no such case**: over 19 years, every facility row equals the sum of its
+    generators and every national row equals both sums, exactly (FINDINGS.md R). EIA builds the upper
+    grains from the units.
+  - So a future mismatch would be news, a change at EIA or a broken load, and the product must show
+    it, not hide it by recomputing.
+  - The disagreement that does exist is different: a unit missing from **all three** grains on some
+    days. It is handled by the `unit_reporting_gap` check and by the coverage columns of US-08 (#17).
+
+  Where it lives: `model/quality.py`.
 
 ### 4. Synchronous or asynchronous refresh
 
@@ -209,3 +228,19 @@ _Pending: decided in step 6 (query path)._
     The range is honest and shows how much the gap matters.
 
   Where it lives: `model/build.py` (`metric_fleet_offline_daily`); definitions in `model/tables.py`.
+
+### 18. Data quality checks run inside every model build and are stored as a table
+
+- **Choice:** `model/quality.py` defines 8 checks, one SQL query each. Every build runs them and
+  writes the findings to `dq_issue`, with consecutive days collapsed into one row. The build manifest
+  keeps the counts by check and severity. Severity: `error` when values contradict each other, `warning`
+  when data is valid but incomplete, `info` for fleet changes.
+- **Rejected:** failing the build (or the refresh) when an anomaly is found.
+- **Why:**
+  - Every anomaly found is in the source and real (e.g. Indian Point 2). Refusing to load would leave
+    users with older data and the same anomaly.
+  - Storing the findings as a table lets analysts query them like any dataset (US-07), and lets the
+    UI show them next to the numbers they affect.
+  - The build still fails on what *we* would get wrong: a duplicate key or an orphan row (#15).
+
+  Where it lives: `model/quality.py`, `dq_issue` in `model/tables.py`.

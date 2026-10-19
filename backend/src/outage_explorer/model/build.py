@@ -34,6 +34,7 @@ import duckdb
 from outage_explorer.config import Settings
 from outage_explorer.connector.extract import RunLock
 from outage_explorer.connector.routes import ROUTES
+from outage_explorer.model.quality import dq_issue_sql
 from outage_explorer.model.tables import TABLES, Table
 
 log = logging.getLogger(__name__)
@@ -140,6 +141,8 @@ _SELECTS: dict[str, str] = {
                units_missing = 0 AND units_zero_capacity = 0 AS is_complete
         FROM day
     """,
+    # Last: the checks read every table above (see quality.py).
+    "dq_issue": dq_issue_sql(),
 }
 
 
@@ -211,6 +214,13 @@ def _build(data: Path, out: Path, build_id: str) -> dict:
 
         for name, table in TABLES.items():
             manifest["tables"][name] = _write_table(con, table, out, build_id)
+
+        # {check: {severity: issues}}, so a refresh can report "3 new errors" without reading the table.
+        manifest["data_quality"] = {}
+        for check, severity, n in con.execute(
+            "SELECT check_name, severity, count(*) FROM dq_issue GROUP BY ALL ORDER BY ALL"
+        ).fetchall():
+            manifest["data_quality"].setdefault(check, {})[severity] = n
     finally:
         con.close()
     return manifest
