@@ -467,6 +467,10 @@ filled in with the step that settles them, in the same commit as the code.
   - Limits: per process and in memory, with at most 10,000 tracked keys so a flood of usernames can't
     grow it. An attacker with many addresses is not stopped. In production, login would go through an
     identity provider with its own protections (#19).
+  - Field lengths (added after the security review): `username` ≤ 64 and `password` ≤ 256 characters,
+    checked by the request model, so an oversized login is `422` before any scrypt hash or limiter
+    entry. Without it, every attempt below the limit hashed whatever the client sent. The size of the
+    request body itself is the reverse proxy's job (uvicorn has no body limit).
 
   Where it lives: `api/ratelimit.py`; used in `api/auth.py` (`login`).
 

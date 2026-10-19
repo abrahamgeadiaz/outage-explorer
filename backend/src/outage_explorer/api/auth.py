@@ -16,7 +16,7 @@ from typing import Annotated
 import jwt
 from fastapi import APIRouter, Depends, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from outage_explorer.api.errors import ApiError, forbidden, unauthenticated
 from outage_explorer.api.policy import ROLE_CAPABILITIES, Capability, can
@@ -130,9 +130,15 @@ def require(capability: Capability):
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
 
+# Checked before the handler runs, so an oversized login is a 422 that costs neither a scrypt hash nor
+# a rate-limiter entry. Generous for real passwords (NIST asks for at least 64 characters).
+MAX_USERNAME_LENGTH = 64
+MAX_PASSWORD_LENGTH = 256
+
+
 class LoginRequest(BaseModel):
-    username: str
-    password: str
+    username: str = Field(max_length=MAX_USERNAME_LENGTH)
+    password: str = Field(max_length=MAX_PASSWORD_LENGTH)
 
 
 class UserOut(BaseModel):

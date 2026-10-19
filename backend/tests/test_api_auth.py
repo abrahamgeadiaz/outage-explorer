@@ -125,6 +125,25 @@ def test_password_hashes_are_salted_and_verify():
     assert not auth.verify_password("pW", a)
 
 
+@pytest.mark.parametrize(
+    "field,length", [("username", auth.MAX_USERNAME_LENGTH + 1), ("password", auth.MAX_PASSWORD_LENGTH + 1)]
+)
+def test_oversized_login_fields_are_refused_before_hashing_or_counting(client, monkeypatch, field, length):
+    hashed, counted = [], []
+    monkeypatch.setattr(auth, "verify_password", lambda *a: hashed.append(a) or False)
+    monkeypatch.setattr(client.app.state.login_limiter, "failed", lambda *a: counted.append(a))
+    body = {"username": "analyst", "password": "x", field: "x" * length}
+    resp = client.post("/api/auth/login", json=body)
+    assert resp.status_code == 422
+    assert resp.json()["error"]["details"][0]["field"] == f"body.{field}"
+    assert hashed == [] and counted == []
+
+
+def test_the_longest_allowed_fields_still_get_a_normal_answer(client):
+    body = {"username": "x" * auth.MAX_USERNAME_LENGTH, "password": "x" * auth.MAX_PASSWORD_LENGTH}
+    assert client.post("/api/auth/login", json=body).json()["error"]["code"] == "invalid_credentials"
+
+
 def test_validation_errors_use_the_common_error_shape(client):
     resp = client.post("/api/auth/login", json={"username": "analyst"})
     assert resp.status_code == 422
