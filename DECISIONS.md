@@ -501,7 +501,9 @@ filled in with the step that settles them, in the same commit as the code.
   A query over the limit fails with `400 query_error` (out of memory) instead of growing. On top of
   that, `sqlguard` accepts only functions on an allow-list (`ALLOWED_FUNCTIONS`, 144 names: aggregates,
   window, math, dates, common string and list functions), each returning a value at most linear in
-  its inputs; anything else is `400 function_not_allowed`.
+  its inputs; anything else is `400 function_not_allowed`. The rows are fetched in batches and a page
+  over `QUERY_MAX_RESULT_BYTES` (default 20 MB, text length plus 8 bytes per value) is refused with
+  `400 result_too_large`.
 - **Rejected:** DuckDB's defaults (80% of RAM and every core for each query), with the 10 s timeout as
   the only limit; and a block-list of the dangerous functions instead of an allow-list.
 - **Why:**
@@ -526,6 +528,11 @@ filled in with the step that settles them, in the same commit as the code.
     from `fact_national_daily.period`. Lambdas (`list_transform`) are out too, to keep the list short.
   - Names are sqlglot's (`string_agg` parses as `group_concat`, `strftime` as `time_to_str`), so the
     15 queries in `analysis/findings.sql` and a list of everyday expressions are tested to pass.
+  - The result cap covers the step after the engine: `max_rows` bounds the rows, not their size, and
+    5,000 rows of 20 KB strings (a literal fits in the 20,000-character query) would be 100 MB as
+    Python objects and more as JSON. Batches stop the fetch at the cap instead of after it. One value
+    can still reach the 1 GB engine limit before it is measured; with the allowed functions that
+    needs an aggregate like `string_agg`, and the concurrency limit bounds how many at once.
   - Not covered: an amplifier among the allowed functions that nobody has found yet. The stronger fix
     is to run each query in a worker process that is killed on timeout, with an OS memory cap; I'd do
     that before exposing SQL to untrusted users.

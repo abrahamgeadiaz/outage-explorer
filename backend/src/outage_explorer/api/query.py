@@ -66,13 +66,42 @@ def authorize(user: User, sql: str) -> sqlguard.CheckedQuery:
     return checked
 
 
-def run(con: duckdb.DuckDBPyConnection, sql: str, timeout: float) -> tuple[list, list]:
-    """Execute with a timeout: a timer interrupts the connection if the query is still running."""
+FETCH_BATCH = 500
+
+
+def approx_size(value: Any) -> int:
+    """Rough bytes of a result value: the length of text, a fixed cost for anything scalar."""
+    if isinstance(value, str | bytes):
+        return len(value)
+    if isinstance(value, list | tuple):
+        return 8 + sum(approx_size(v) for v in value)
+    if isinstance(value, dict):
+        return 8 + sum(approx_size(k) + approx_size(v) for k, v in value.items())
+    return 8
+
+
+def run(con: duckdb.DuckDBPyConnection, sql: str, timeout: float, max_bytes: int) -> tuple[list, list, int]:
+    """Execute with a timeout and a size cap; returns the description, the rows and their approx_size.
+
+    A timer interrupts the connection if the query is still running. The rows are fetched in batches
+    and refused once they pass `max_bytes`: DuckDB's memory limit stops at the engine, and the row
+    cap alone still lets 5,000 rows of long strings through to Python and into the JSON response.
+    """
     timer = threading.Timer(timeout, con.interrupt)
     timer.start()
     try:
         result = con.execute(sql)
-        return result.description or [], result.fetchall()
+        rows, size = [], 0
+        while batch := result.fetchmany(FETCH_BATCH):
+            size += sum(approx_size(row) for row in batch)
+            if size > max_bytes:
+                raise ApiError(
+                    400,
+                    "result_too_large",
+                    f"the result is larger than {max_bytes / 1e6:g} MB; select fewer columns or rows",
+                )
+            rows.extend(batch)
+        return result.description or [], rows, size
     except duckdb.InterruptException:
         raise ApiError(408, "query_timeout", f"the query ran longer than {timeout:g} s") from None
     except duckdb.Error as exc:
@@ -102,7 +131,9 @@ def query(
 
     started = time.perf_counter()
     with store.connect(settings.data_path, manifest, grant) as con:
-        description, rows = run(con, page.sql(), settings.query_timeout_seconds)
+        description, rows, _ = run(
+            con, page.sql(), settings.query_timeout_seconds, settings.query_max_result_bytes
+        )
     elapsed = int((time.perf_counter() - started) * 1000)
 
     truncated = len(rows) > body.max_rows

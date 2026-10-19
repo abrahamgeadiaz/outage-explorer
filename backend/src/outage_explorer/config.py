@@ -33,6 +33,7 @@ class Settings(BaseSettings):
     login_max_failures_per_client: int = 20  # per client across all usernames (0 disables)
     login_window_seconds: float = 300.0
     query_timeout_seconds: float = 10.0  # user SQL is interrupted after this long
+    query_max_result_bytes: int = 20_000_000  # a query page larger than this is refused (approx.)
     query_cache_ttl_seconds: float = 300.0  # 0 disables the query result cache
     query_cache_max_rows: int = 200_000  # rows kept across all cached results (memory bound)
 

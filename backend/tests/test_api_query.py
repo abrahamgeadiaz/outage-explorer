@@ -3,6 +3,7 @@
 import pytest
 from fastapi.testclient import TestClient
 
+from outage_explorer.api import query as query_module
 from outage_explorer.api.app import create_app
 from tests.conftest import auth_headers
 
@@ -173,12 +174,10 @@ def test_long_queries_are_interrupted(api_settings, api_model):
 
 
 def test_the_cap_is_applied_by_the_engine_not_after_fetching(client, api_model, monkeypatch):
-    from outage_explorer.api import query as query_module
-
     sent = []
     real_run = query_module.run
     monkeypatch.setattr(
-        query_module, "run", lambda con, sql, timeout: (sent.append(sql), real_run(con, sql, timeout))[1]
+        query_module, "run", lambda con, sql, *limits: (sent.append(sql), real_run(con, sql, *limits))[1]
     )
     _query(client, "analyst", "SELECT * FROM fact_generator_daily", max_rows=2)
     assert sent == ["SELECT * FROM fact_generator_daily LIMIT 3"]  # one extra row detects the cut
@@ -223,3 +222,27 @@ def test_percent_limit_is_paged_from_outside(client, api_model):
 
 def test_offset_is_bounded(client, api_model):
     assert _query(client, "analyst", "SELECT 1", offset=-1).status_code == 422
+
+
+# --- result size -----------------------------------------------------------------------------------
+
+
+def test_a_result_over_the_size_cap_is_refused(api_settings, api_model):
+    settings = api_settings.model_copy(update={"query_max_result_bytes": 500})
+    padding = "'" + "x" * 100 + "'"
+    with TestClient(create_app(settings)) as c:
+        small = _query(c, "analyst", "SELECT facility_id FROM fact_generator_daily")  # 8 rows, ~100 bytes
+        big = _query(c, "analyst", f"SELECT facility_id, {padding} FROM fact_generator_daily")  # ~900 bytes
+    assert small.status_code == 200 and small.json()["row_count"] == 8
+    assert big.status_code == 400
+    assert big.json()["error"] == {
+        "code": "result_too_large",
+        "message": "the result is larger than 0.0005 MB; select fewer columns or rows",
+    }
+
+
+def test_approx_size_counts_text_and_nested_values():
+    assert query_module.approx_size("abc") == 3
+    assert query_module.approx_size(1.5) == 8
+    assert query_module.approx_size(("ab", ["cd", None])) == 8 + 2 + (8 + 2 + 8)
+    assert query_module.approx_size({"k": "vv"}) == 8 + 1 + 2

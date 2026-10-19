@@ -22,9 +22,9 @@ def engine_calls(monkeypatch):
     sent = []
     real_run = query_module.run
 
-    def spy(con, sql, timeout):
+    def spy(con, sql, *limits):
         sent.append(sql)
-        return real_run(con, sql, timeout)
+        return real_run(con, sql, *limits)
 
     monkeypatch.setattr(query_module, "run", spy)
     return sent

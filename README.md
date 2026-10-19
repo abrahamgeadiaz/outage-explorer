@@ -174,7 +174,8 @@ in subqueries and CTEs, must be granted to the caller, or the whole query is ref
 table functions (`read_parquet`...), file paths and functions outside an allow-list (DECISIONS.md #27)
 are rejected. Results come `max_rows` (≤ 5000) at
 a time; send `offset = next_offset` for the next page (stable when the query has an `ORDER BY`).
-Queries stop after 10 s (`QUERY_TIMEOUT_SECONDS`). Results are cached
+Queries stop after 10 s (`QUERY_TIMEOUT_SECONDS`), and a page larger than 20 MB is refused
+(`QUERY_MAX_RESULT_BYTES`). Results are cached
 for 5 minutes per role grant and model build (`cached: true` in the response; `QUERY_CACHE_TTL_SECONDS`,
 `QUERY_CACHE_MAX_ROWS`, `0` disables), and every refresh clears the cache (DECISIONS.md #24). See DECISIONS.md #5 and #6.
 
@@ -193,7 +194,7 @@ Every error has the same shape, `{"error": {"code": "...", "message": "..."}}`: 
 (no, invalid or expired token), `401 invalid_credentials`, `403 forbidden`, `429 rate_limited` (5 failed logins for a username from one address, or 20 from one
 address, within 5 minutes; `Retry-After` says when to try again), `400 filter_not_supported` / `invalid_filter`,
 `400` SQL rejections (`read_only`, `one_statement_only`, `function_not_allowed`, `source_not_allowed`,
-`unknown_table`, `syntax_error`, `query_error`), `408 query_timeout`, `409 refresh_in_progress`,
+`unknown_table`, `syntax_error`, `query_error`, `result_too_large`), `408 query_timeout`, `409 refresh_in_progress`,
 `404 dataset_not_found`, `422 invalid_request`,
 `503 model_not_built`.
 
