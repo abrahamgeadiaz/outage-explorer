@@ -40,7 +40,8 @@ filled in with the step that settles them, in the same commit as the code.
     retried next time instead of leaving a permanent gap.
 
   The 30-day window is a configuration value (`REFRESH_LOOKBACK_DAYS`). It is our assumption about
-  how far back revisions go. Step 4 checks it against the data.
+  how far back revisions go, and the data hasn't confirmed or refuted it yet: two re-fetches so far
+  found 0 changed rows (FINDINGS.md, "Also checked"). Every run reports `updated`, so it stays visible.
   Where it lives: `connector/extract.py` (`plan_window`), `connector/storage.py` (`upsert_window`).
 
 ### 3. A generator whose facility is missing from the facility route, or whose values don't add up

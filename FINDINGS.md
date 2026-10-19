@@ -194,5 +194,7 @@ in, because we can't know whether a missing unit was running (DECISIONS.md #17).
 - No plant changes its name. Generator ids are only `1`–`4`.
 - EIA sends at most 3 decimals for MW, so `DECIMAL(12,3)` is exact.
 - **Revisions:** the full load re-fetched the 46 days already stored by the first run, 18 hours
-  later: 0 rows changed. That is too little evidence to confirm the 30-day lookback
-  (DECISIONS.md #2). Every refresh reports `updated` rows, so later refreshes will show it.
+  later: 0 rows changed. The refresh of 2026-10-19 re-fetched 2026-09-16 → 10-19 (the 30-day
+  lookback), 30 hours after the full load: again 0 rows changed, and 0 new days (EIA's latest day was
+  still 2026-10-16). Two quiet re-fetches are too little evidence to confirm or size the 30-day
+  lookback (DECISIONS.md #2); every run's `updated` count in `data/_meta/runs/` will show it over time.
