@@ -3,8 +3,7 @@
 Explore and query U.S. nuclear outage data from the [EIA Open Data API](https://www.eia.gov/opendata/)
 (national, facility and generator grains) without exporting it into spreadsheets by hand.
 
-> Status: work in progress. The data connector (Part 1), the data model (Part 2) and the API (Part 3) are done;
-> the web app (Part 4) follows.
+> Status: all four parts are done: data connector, data model, API and web app.
 
 ## Parts
 
@@ -196,6 +195,32 @@ address, within 5 minutes; `Retry-After` says when to try again), `400 filter_no
 `unknown_table`, `syntax_error`, `query_error`), `408 query_timeout`, `409 refresh_in_progress`,
 `404 dataset_not_found`, `422 invalid_request`,
 `503 model_not_built`.
+
+## Web app
+
+Requirements: Node 20+ (tested with Node 24). The API must be running (`uv run outage-api`).
+
+```bash
+cd frontend
+npm install
+npm run dev                   # http://localhost:5173 (proxies /api to http://127.0.0.1:8000)
+npm test                      # component tests (Vitest + Testing Library), offline
+npm run build                 # type-check + production build into frontend/dist
+```
+
+Sign in with one of the test users above. What each screen does:
+
+| Screen | Who | What |
+|---|---|---|
+| Datasets | everyone | the datasets your role may see, grouped, with row counts |
+| Dataset page | everyone (`403` → "not allowed") | columns with types and definitions; rows filtered by date and facility, paged by the API; the URL keeps filters and page |
+| Fleet offline | everyone | **US-08** chart: daily % of capacity offline, summary tiles, shading where units are missing, the min–max range in the tooltip, table view |
+| SQL | roles with `query` | editor (Ctrl+Enter), results with paging, timing and `cached`, errors with their code, schema panel, history, CSV export |
+| Refresh | Admin | start an incremental or full refresh, follow its steps, see rows, the new build, DQ findings or why it failed |
+
+The session survives reloads (token in `localStorage`, checked with `/api/auth/me`); when it expires
+you're signed out with a notice. Hiding links is only a convenience: every request is authorized by
+the API (DECISIONS.md #26).
 
 ## Documents
 

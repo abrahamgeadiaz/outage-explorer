@@ -11,6 +11,7 @@ Running log, kept up to date while building — not written at the end.
 | EIA client (`connector/eia_client.py`) + tests | Claude Code | Reviewed; failure modes chosen from real API probes |
 | Validation, storage, extraction orchestrator, CLI + tests | Claude Code | Reviewed; required-field and failure policies decided by me |
 | Data model build (`model/`), DQ checks, `outage-sql`, FINDINGS.md queries + tests | Claude Code | Reviewed; types, versioning and the US-08 / missing-unit policy decided by me from the data findings |
+| Web app (`frontend/`): session, routes, dataset, SQL, refresh and US-08 pages + component tests | Claude Code | Reviewed; screens checked in a real browser against the real API |
 | API auth, policy, catalog, preview, serving store, SQL guard, query, refresh jobs (`api/`) + tests | Claude Code | Reviewed; Viewer column grant, role-per-request and the per-grant sandbox decided by me |
 
 ## Things the AI got wrong (and how I caught it)
@@ -63,6 +64,20 @@ Running log, kept up to date while building — not written at the end.
 11. **DuckDB's Python replacement scans.** By default, `FROM name` in DuckDB's Python API falls back to
     a pandas or Arrow variable called `name` in the calling code. The plan didn't mention it. A probe
     confirmed it, and the sandbox now turns it off (`python_enable_replacements=false`).
+
+12. **The US-08 chart showed a band nobody could see.** The generated chart drew the min–max range
+    as a translucent area. It was there in the SVG (a 37k-character path), but a missing unit moves the
+    share by under one percentage point, so over 5 years of daily points the line covered it. The
+    "Incomplete days: 1,196" tile and an apparently complete chart disagreed. Caught by taking
+    screenshots of the real app with a headless browser and comparing them with the numbers. Fixed by
+    shading every run of incomplete days behind the line, keeping the band for short ranges and the exact
+    range in the tooltip. The 2022–2025 Palisades gap and Vogtle 3 in 2023 are now visible.
+13. **A side effect in render.** The refresh page first invalidated cached data from the render body
+    when a job finished. That runs twice under StrictMode and can fire during a discarded render. I caught
+    it in review and moved it into an effect keyed on the finished job.
+14. **Retrying a state that can't fix itself.** The first query client retried every 5xx. `503
+    model_not_built` lasts until an Admin refreshes, so users waited through the backoff to see "No data
+    yet". The test for that screen timed out, which is how I found it.
 
 ## How I verified generated code (beyond "it ran")
 
@@ -128,3 +143,15 @@ Running log, kept up to date while building — not written at the end.
   equivalent: a blocked pair records no more failures, so there are never more than the limit.
   Concurrent requests can exceed it, though, so a unit test now covers that case, and the mutation
   fails. My first version of that test had its own arithmetic wrong; the code was right.
+- **Web app**: 39 component tests, rendering the real routes against a stubbed `fetch`. They cover
+  login and expiry, role-dependent navigation, "not allowed" with no follow-up data request, paging
+  and filters sent to the API, SQL errors, history per user, CSV escaping, refresh polling to
+  completion, and stale data invalidated after a refresh. Mutation checks, each of which made a test
+  fail: rows requested before the dataset's 403, filters not resetting to page 1, the Prev stack never
+  popping, history shared between users, no unordered-paging warning, no CSV escaping, a re-run
+  keeping the old offset (this one survived at first, so I added the test), only the first page of
+  the chart range read, no polling, no invalidation after a refresh, the full-reload flag ignored.
+- **Screens in a real browser**: a headless Chrome script, kept outside the repo, logs in as each
+  persona against the real API and Vite, then screenshots every screen in light, dark and phone
+  width. That's how I found the invisible band (#12) and two layout problems on phones: summary tiles
+  one per row, and a legend swatch wrapping away from its label.

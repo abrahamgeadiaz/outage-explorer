@@ -10,6 +10,7 @@ import { Empty } from "./components/States";
 import { DatasetPage } from "./pages/DatasetPage";
 import { DatasetsPage } from "./pages/DatasetsPage";
 import { LoginPage } from "./pages/LoginPage";
+import { RefreshPage } from "./pages/RefreshPage";
 import { SqlPage } from "./pages/SqlPage";
 
 export const routes: RouteObject[] = [
@@ -29,6 +30,16 @@ export const routes: RouteObject[] = [
         element: (
           <RequireAuth capability="query">
             <SqlPage />
+          </RequireAuth>
+        ),
+      },
+      // Loaded on demand: the chart library is most of the bundle and only this page needs it.
+      { path: "/fleet", lazy: async () => ({ Component: (await import("./pages/FleetPage")).FleetPage }) },
+      {
+        path: "/refresh",
+        element: (
+          <RequireAuth capability="refresh">
+            <RefreshPage />
           </RequireAuth>
         ),
       },
