@@ -10,6 +10,7 @@ import { Empty } from "./components/States";
 import { DatasetPage } from "./pages/DatasetPage";
 import { DatasetsPage } from "./pages/DatasetsPage";
 import { LoginPage } from "./pages/LoginPage";
+import { SqlPage } from "./pages/SqlPage";
 
 export const routes: RouteObject[] = [
   { path: "/login", element: <LoginPage /> },
@@ -23,6 +24,14 @@ export const routes: RouteObject[] = [
       { index: true, element: <Navigate to="/datasets" replace /> },
       { path: "/datasets", element: <DatasetsPage /> },
       { path: "/datasets/:name", element: <DatasetPage /> },
+      {
+        path: "/sql",
+        element: (
+          <RequireAuth capability="query">
+            <SqlPage />
+          </RequireAuth>
+        ),
+      },
       { path: "*", element: <Empty>Page not found.</Empty> },
     ],
   },
