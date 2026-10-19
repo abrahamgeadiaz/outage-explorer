@@ -10,6 +10,7 @@ Running log, kept up to date while building — not written at the end.
 | Backend scaffold, settings | Claude Code | Reviewed |
 | EIA client (`connector/eia_client.py`) + tests | Claude Code | Reviewed; failure modes chosen from real API probes |
 | Validation, storage, extraction orchestrator, CLI + tests | Claude Code | Reviewed; required-field and failure policies decided by me |
+| Data model build (`model/`) + tests | Claude Code | Reviewed; types, versioning and the US-08 / missing-unit policy decided by me from the data findings |
 
 ## Things the AI got wrong (and how I caught it)
 
@@ -27,6 +28,11 @@ Running log, kept up to date while building — not written at the end.
    filling the result in place so partial information survives the exception.
 4. **Placeholder code left in.** A generated `_summarise` contained two meaningless lines
    (`expected = ... and None; del expected`). Caught in code review before committing.
+5. **Pruning old model builds could delete the live one.** Build ids were `<second>-<random>`, and old
+   builds were pruned by sorting on the name. Two builds in the same second sort by the random suffix,
+   so the newest build, the one `current.json` points to, could be deleted. Caught by a test that runs
+   three builds in a row and checks which folders remain; it failed on the first run. Fixed with
+   microseconds in the id and a guard that never prunes the current build.
 
 ## How I verified generated code (beyond "it ran")
 

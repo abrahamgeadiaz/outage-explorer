@@ -83,6 +83,28 @@ add new days and also pick up values EIA revised recently (counted as `updated`)
 The API key is sent as a query parameter (EIA's only option), so it is masked (`api_key=***`) in all logs,
 including httpx's own request log, and never appears in error messages or run metadata.
 
+## Data model
+
+```bash
+cd backend
+uv run outage-model           # builds data/model from data/raw (~25 s for the full history)
+```
+
+Every build goes to a new folder, `data/model/builds/<build_id>/`. `data/model/current.json` then
+switches to it atomically, so readers never see a half-written model. The newest 3 builds are kept.
+
+| Table | Grain (primary key) | Contents |
+|---|---|---|
+| `fact_national_daily` | `period` | U.S. fleet capacity, outage and percentage per day |
+| `fact_facility_daily` | `period, facility_id` | the same per plant |
+| `fact_generator_daily` | `period, facility_id, generator_id` | the same per unit (finest grain) |
+| `dim_facility` | `facility_id` | plant name, first and last day reported, units, status |
+| `dim_generator` | `facility_id, generator_id` | unit lifetime, reported and missing days, latest capacity, status |
+
+MW values are `DECIMAL(12,3)`, so the grains add up exactly. `percent_outage` is recomputed from MW
+(NULL when capacity is 0). EIA's rounded value is kept as `percent_outage_eia`. Column descriptions
+live in `backend/src/outage_explorer/model/tables.py`.
+
 ## Documents
 
 - `DECISIONS.md`: open design questions, choices and rejected alternatives

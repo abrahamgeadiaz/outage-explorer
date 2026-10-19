@@ -12,6 +12,7 @@ dependencies = [
 
 [project.scripts]
 outage-extract = "outage_explorer.connector.cli:main"
+outage-model = "outage_explorer.model.cli:main"
 
 [dependency-groups]
 dev = [
@@ -43,3 +44,5 @@ ignore = ["S101"] # assert is fine in tests
 "tests/**" = ["S"]
 # Builds SQL from our own quoted column names only; see the comment in upsert_window.
 "src/outage_explorer/connector/storage.py" = ["S608"]
+# Same: table and column names come from model/tables.py, never from user input.
+"src/outage_explorer/model/*.py" = ["S608"]

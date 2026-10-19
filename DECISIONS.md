@@ -140,3 +140,51 @@ _Pending: decided in step 6 (query path)._
 - **Why:** during the real full load, full jitter produced a 0.8-second wait before a 4th retry
   against a struggling gateway. Equal jitter guarantees that later retries wait longer, while the
   random half still keeps the parallel workers from retrying at the same moment.
+
+### 14. Model types: DECIMAL for megawatts, the EIA percentage kept next to a recomputed one
+
+- **Choice:** `capacity_mw` and `outage_mw` are `DECIMAL(12,3)`. `percent_outage` is recomputed from
+  them (`DOUBLE`, NULL when capacity ≤ 0), and EIA's value is kept as `percent_outage_eia` (`DECIMAL(6,2)`).
+- **Rejected:** keeping the raw `DOUBLE` columns.
+- **Why:**
+  - EIA sends at most 3 decimals for every MW value (checked on all 1.16M rows), so the cast loses nothing.
+  - With doubles, national vs Σfacility vs Σgenerator differs by up to 2.9e-11 MW. That forces every
+    reconciliation to pick a tolerance. With decimals the grains match exactly (`0.000`), and any
+    non-zero gap is real.
+  - EIA rounds the percentage to 2 decimals at facility and national level and reports one even when
+    capacity is 0 (Indian Point 2, March 2020). Recomputing it gives one consistent definition; keeping
+    EIA's lets users compare the two.
+
+  Where it lives: `model/tables.py`, `model/build.py` (`_VALUES_SQL`).
+
+### 15. The model is rebuilt into a new versioned folder; `current.json` points at the live one
+
+- **Choice:** each `outage-model` run builds every table into `data/model/builds/<build_id>/`, then
+  switches `data/model/current.json` to it with an atomic replace. The newest 3 builds are kept.
+  Tables are created with their PRIMARY KEY and FOREIGN KEYs, so a duplicate key or an orphan row
+  fails the build instead of being written.
+- **Rejected:** overwriting the model files in place.
+- **Why:**
+  - Readers (the API, a running query) always see one complete, consistent build, never half old
+    and half new.
+  - On Windows a file that a reader has open can't be replaced; a new folder avoids that entirely.
+  - A failed build changes nothing, and the previous builds stay for comparison or rollback.
+  - A full rebuild takes ~25 s for 1.16M rows. That is simpler and safer than incremental model
+    updates at this size (see the volume notes in FINDINGS.md).
+
+  The build takes the connector's lock, so it never reads a raw file while an extraction swaps it.
+  Where it lives: `model/build.py`.
+
+### 16. Partitioning: fact tables by year, sorted by their key; small tables in one file
+
+- **Choice:** `fact_*_daily` are written as `year=YYYY/` folders, each file sorted by
+  `(period, facility_id, generator_id)`. Dimensions (≤ 107 rows) are single files.
+- **Rejected:** partitioning by facility.
+- **Why:** the query patterns all filter by date first: preview by date range (US-03), the daily
+  US-08 series, the reconciliation windows. Year folders let DuckDB skip whole years. Sorting inside
+  a file keeps each row group to a narrow date range, so Parquet min/max statistics skip most of a
+  year as well. A facility filter (US-03) is cheap on top of that: a year holds at most ~35k
+  generator rows. Partitioning by facility would mean ~66 folders × 20 years of tiny files, and
+  every national or fleet query would have to open all of them.
+
+  Where it lives: `model/tables.py` (`partitioned_by_year`), `model/build.py` (`_write_table`).

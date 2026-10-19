@@ -83,8 +83,8 @@ def _write_json_atomic(path: Path, payload: dict) -> None:
     os.replace(tmp, path)
 
 
-class _RunLock:
-    """Exclusive lock file so two refreshes (CLI and API, or two clicks) never write at the same time."""
+class RunLock:
+    """Exclusive lock file so two writers (refreshes from CLI or API, a model build) never overlap."""
 
     def __init__(self, data: Path, run_id: str) -> None:
         self.path = meta_dir(data) / "extract.lock"
@@ -95,7 +95,8 @@ class _RunLock:
         if self.path.exists():
             age = datetime.now(UTC) - datetime.fromtimestamp(self.path.stat().st_mtime, UTC)
             if age < STALE_LOCK_AFTER:
-                raise ExtractionLockedError(f"extraction already running ({self.path.read_text('utf-8')})")
+                owner = self.path.read_text("utf-8")
+                raise ExtractionLockedError(f"another extraction or model build is running ({owner})")
             log.warning("removing stale lock older than %s", STALE_LOCK_AFTER)
             self.path.unlink()
         fd = os.open(self.path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)  # atomic: fails if it exists
@@ -181,7 +182,7 @@ def run_extraction(
 
     summary: dict = {"run_id": run_id, "started_at": now.isoformat(), "status": "running", "datasets": {}}
 
-    with _RunLock(data, run_id):
+    with RunLock(data, run_id):
         state = load_state(data)
         own_client = client is None
         if own_client:
