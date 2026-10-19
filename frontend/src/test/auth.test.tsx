@@ -68,21 +68,29 @@ describe("login and session", () => {
   });
 
   it("signs out with a notice when the token expires mid-session", async () => {
-    mockApi({
+    const { calls } = mockApi({
       ...signedInAs("analyst"),
       "GET /api/datasets": [401, { error: { code: "unauthenticated", message: "access token expired" } }],
     });
     renderAt("/datasets");
     expect(await screen.findByText("Your session expired. Please sign in again.")).toBeInTheDocument();
     expect(localStorage.getItem("outage-explorer.token")).toBeNull();
+    expect(calls.some((c) => c.url.pathname === "/api/auth/logout")).toBe(false); // nothing left to revoke
   });
 
-  it("sign out clears the token", async () => {
-    mockApi({ ...signedInAs("analyst"), "GET /api/datasets": [200, CATALOG] });
+  it("sign out clears the token and revokes it on the server", async () => {
+    const { calls } = mockApi({
+      ...signedInAs("analyst"),
+      "GET /api/datasets": [200, CATALOG],
+      "POST /api/auth/logout": [204, null],
+    });
     renderAt("/datasets");
     await userEvent.click(await screen.findByRole("button", { name: "Sign out" }));
     await waitFor(() => expect(screen.getByRole("button", { name: "Sign in" })).toBeInTheDocument());
     expect(localStorage.getItem("outage-explorer.token")).toBeNull();
+    const logout = calls.filter((c) => c.url.pathname === "/api/auth/logout");
+    expect(logout).toHaveLength(1);
+    expect(logout[0].headers.Authorization).toBe("Bearer token-for-analyst");
   });
 
   it.each([

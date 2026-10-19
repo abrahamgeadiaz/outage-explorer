@@ -52,6 +52,13 @@ export const tokenStore = {
   },
 };
 
+// Signing out ends the session on the server too: the API revokes the token until it expires. Best
+// effort and not through api(): the local session ends either way, and a 401 here (an already invalid
+// token) must not trigger the "session expired" handler.
+export function revokeToken(token: string): void {
+  fetch("/api/auth/logout", { method: "POST", headers: { Authorization: `Bearer ${token}` } }).catch(() => {});
+}
+
 // Set by the session provider: a 401 on any call means the token expired or was revoked.
 let onUnauthorized: (() => void) | null = null;
 export function setUnauthorizedHandler(handler: (() => void) | null): void {

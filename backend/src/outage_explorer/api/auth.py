@@ -2,14 +2,17 @@
 
 Simplified on purpose (the brief allows it): users are seeded in users.py, passwords are hashed with
 scrypt (stdlib), and the API issues short-lived HS256 JWTs. The token carries only who the user is
-(`sub`); the role is looked up on every request, so a role change applies at once instead of when
-the token expires.
+(`sub`) and its own id (`jti`); the role is looked up on every request, so a role change applies at
+once instead of when the token expires. Signing out revokes the token's id until it would expire.
 """
 
 import base64
 import hashlib
 import hmac
 import secrets
+import threading
+import time
+from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from typing import Annotated
 
@@ -76,6 +79,7 @@ def issue_token(settings: Settings, user: User, *, now: datetime | None = None) 
     now = now or datetime.now(UTC)
     claims = {
         "sub": user.username,
+        "jti": secrets.token_urlsafe(16),
         "iss": ISSUER,
         "iat": now,
         "exp": now + timedelta(minutes=settings.jwt_ttl_minutes),
@@ -83,35 +87,64 @@ def issue_token(settings: Settings, user: User, *, now: datetime | None = None) 
     return jwt.encode(claims, settings.jwt_secret.get_secret_value(), algorithm=ALGORITHM)
 
 
-def decode_token(settings: Settings, token: str) -> User:
-    """The user a token belongs to; raises 401 for anything not signed by us, expired, or malformed."""
+class RevokedTokens:
+    """Ids of signed-out tokens, each kept until its token would have expired anyway.
+
+    In memory, per process: a restart forgets them (tokens live 60 minutes at most). Expired ids are
+    dropped on every revoke, so the set holds at most the tokens signed out in the last hour.
+    """
+
+    def __init__(self, clock: Callable[[], float] = time.time):
+        self.clock = clock
+        self._expiry: dict[str, float] = {}
+        self._lock = threading.Lock()
+
+    def revoke(self, jti: str, expires_at: float) -> None:
+        now = self.clock()
+        with self._lock:
+            self._expiry = {j: exp for j, exp in self._expiry.items() if exp > now}
+            self._expiry[jti] = expires_at
+
+    def is_revoked(self, jti: str) -> bool:
+        with self._lock:
+            return jti in self._expiry
+
+
+def decode_claims(settings: Settings, token: str) -> dict:
+    """A token's claims; raises 401 for anything not signed by us, expired, or malformed."""
     try:
-        claims = jwt.decode(
+        return jwt.decode(
             token,
             settings.jwt_secret.get_secret_value(),
             algorithms=[ALGORITHM],  # pinned: never let the token choose (no "none", no key confusion)
             issuer=ISSUER,
-            options={"require": ["sub", "iss", "iat", "exp"]},
+            options={"require": ["sub", "jti", "iss", "iat", "exp"]},
         )
     except jwt.ExpiredSignatureError:
         raise unauthenticated("access token expired") from None
     except jwt.InvalidTokenError:
         raise unauthenticated() from None
-    user = USERS.get(claims["sub"])
-    if user is None:  # deleted since the token was issued
-        raise unauthenticated()
-    return user
 
 
 _bearer = HTTPBearer(auto_error=False)  # auto_error would answer 403; a missing token is a 401
 
 
-def current_user(
+def current_claims(
     request: Request, credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(_bearer)]
-) -> User:
+) -> dict:
     if credentials is None:
         raise unauthenticated()
-    return decode_token(request.app.state.settings, credentials.credentials)
+    claims = decode_claims(request.app.state.settings, credentials.credentials)
+    if request.app.state.revoked_tokens.is_revoked(claims["jti"]):
+        raise unauthenticated("signed out; sign in again")
+    return claims
+
+
+def current_user(claims: Annotated[dict, Depends(current_claims)]) -> User:
+    user = USERS.get(claims["sub"])
+    if user is None:  # deleted since the token was issued
+        raise unauthenticated()
+    return user
 
 
 def require(capability: Capability):
@@ -184,6 +217,12 @@ def login(body: LoginRequest, request: Request) -> TokenOut:
         expires_in=settings.jwt_ttl_minutes * 60,
         user=UserOut.of(user),
     )
+
+
+@router.post("/logout", status_code=204)
+def logout(claims: Annotated[dict, Depends(current_claims)], request: Request) -> None:
+    """Revoke this token: every later request with it is a 401, as if it had expired."""
+    request.app.state.revoked_tokens.revoke(claims["jti"], claims["exp"])
 
 
 @router.get("/me", response_model=UserOut)

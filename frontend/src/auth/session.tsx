@@ -1,7 +1,7 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 
-import { api, setUnauthorizedHandler, tokenStore } from "../api/client";
+import { api, revokeToken, setUnauthorizedHandler, tokenStore } from "../api/client";
 import type { Capability, TokenResponse, User } from "../api/types";
 
 type Status = "checking" | "anonymous" | "authenticated";
@@ -25,6 +25,8 @@ export function SessionProvider({ children }: { children: ReactNode }) {
 
   const logout = useCallback(
     (reason?: string) => {
+      const token = tokenStore.get();
+      if (token && reason === undefined) revokeToken(token); // signed out on purpose, not expired
       tokenStore.clear();
       queryClient.clear(); // nothing fetched for one user may be shown to the next
       setUser(null);

@@ -316,20 +316,26 @@ filled in with the step that settles them, in the same commit as the code.
 ### 19. Authentication: short-lived signed tokens; the role is looked up on every request
 
 - **Choice:** `POST /api/auth/login` checks the password (scrypt, salted) against three seeded users
-  and returns an HS256 JWT valid for 60 minutes. The token holds only who the user is (`sub`), the
-  issuer and the expiry. Every request decodes it with the algorithm pinned and those claims required,
+  and returns an HS256 JWT valid for 60 minutes. The token holds only who the user is (`sub`), its own
+  id (`jti`), the issuer and the expiry. Every request decodes it with the algorithm pinned and those claims required,
   then reads the user's role from the user store.
 - **Rejected:** putting the role in the token and trusting it.
 - **Why:**
   - With the role in the token, demoting a user (Analyst → Viewer) would not take effect until the
     token expired. Here it takes effect on the next request, which matters for US-05.
   - A token can't be used to escalate: changing `sub` or anything else breaks the signature.
-    `alg: none`, a wrong issuer, a missing `exp` and a deleted user are all rejected (tests cover each).
+    `alg: none`, a wrong issuer, a missing `exp` or `jti` and a deleted user are all rejected (tests
+    cover each).
   - Login gives one answer for an unknown user and a wrong password. For an unknown user it still
     runs the hash check, so the response time doesn't reveal which usernames exist.
   - The app refuses to start without a `JWT_SECRET` of at least 32 characters, instead of signing
     tokens with an empty key.
-  - Simplified, as the brief allows: there is no refresh token or logout. Failed logins are
+  - `POST /api/auth/logout` revokes the token's id until the token would expire, and the web app calls
+    it on "Sign out" (added after the security review: before, signing out only forgot the token in the
+    browser, and a copy of it kept working for up to an hour). Other sessions of the same user stay
+    signed in. The revoked ids live in memory, per process, so a restart forgets them; with several
+    workers they would go in a shared store (Redis), with the same expiry.
+  - Simplified, as the brief allows: there is no refresh token. Failed logins are
     rate-limited (#25). Users live in code (`api/users.py`); swapping in a database or an OIDC
     provider only touches `auth.py` and `users.py`.
 

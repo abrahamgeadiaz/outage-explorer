@@ -22,7 +22,14 @@ def _token(claims: dict, secret: str = TEST_JWT_SECRET, algorithm: str = "HS256"
 
 def _claims(**overrides) -> dict:
     now = datetime.now(UTC)
-    return {"sub": "analyst", "iss": auth.ISSUER, "iat": now, "exp": now + timedelta(minutes=5), **overrides}
+    claims = {
+        "sub": "analyst",
+        "jti": "test-jti",
+        "iss": auth.ISSUER,
+        "iat": now,
+        "exp": now + timedelta(minutes=5),
+    }
+    return {**claims, **overrides}
 
 
 @pytest.mark.parametrize("username", ["analyst", "viewer", "admin"])
@@ -75,8 +82,9 @@ def test_missing_token_is_401_with_bearer_challenge(client):
         _token(_claims(sub="mallory")),  # well signed, but no such user
         _token(_claims(iss="someone-else")),
         _token({k: v for k, v in _claims().items() if k != "exp"}),  # never expires: refused
+        _token({k: v for k, v in _claims().items() if k != "jti"}),  # can't be revoked: refused
     ],
-    ids=["garbage", "basic", "wrong-secret", "alg-none", "unknown-user", "wrong-issuer", "no-exp"],
+    ids=["garbage", "basic", "wrong-secret", "alg-none", "unknown-user", "wrong-issuer", "no-exp", "no-jti"],
 )
 def test_invalid_tokens_are_rejected(client, headers):
     resp = client.get("/api/auth/me", headers=headers)
@@ -89,6 +97,31 @@ def test_expired_token_is_rejected_and_says_so(client):
     resp = client.get("/api/auth/me", headers=_token(_claims(iat=past, exp=past + timedelta(minutes=60))))
     assert resp.status_code == 401
     assert resp.json()["error"]["message"] == "access token expired"
+
+
+def test_logout_revokes_that_token_only(client):
+    first, second = auth_headers(client, "analyst"), auth_headers(client, "analyst")
+    assert first != second  # each login gets its own token id
+    assert client.post("/api/auth/logout", headers=first).status_code == 204
+    resp = client.get("/api/auth/me", headers=first)
+    assert resp.status_code == 401
+    assert resp.json()["error"] == {"code": "unauthenticated", "message": "signed out; sign in again"}
+    assert client.get("/api/datasets", headers=first).status_code == 401  # every endpoint, not just /me
+    assert client.get("/api/auth/me", headers=second).status_code == 200  # another session stays signed in
+
+
+def test_logout_needs_a_valid_token(client):
+    assert client.post("/api/auth/logout").status_code == 401
+    assert client.post("/api/auth/logout", headers={"Authorization": "Bearer junk"}).status_code == 401
+
+
+def test_revoked_ids_are_dropped_once_their_token_has_expired():
+    now = [1000.0]
+    revoked = auth.RevokedTokens(clock=lambda: now[0])
+    revoked.revoke("a", expires_at=1060.0)
+    now[0] = 1061.0
+    revoked.revoke("b", expires_at=2000.0)  # each revoke drops what has expired
+    assert not revoked.is_revoked("a") and revoked.is_revoked("b")
 
 
 def test_role_comes_from_the_user_store_not_the_token(client, monkeypatch):

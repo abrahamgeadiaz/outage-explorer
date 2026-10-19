@@ -156,6 +156,7 @@ curl -s localhost:8000/api/auth/me -H "Authorization: Bearer <access_token>"
 |---|---|---|
 | `POST /api/auth/login` | none | access token + user, role, capabilities |
 | `GET /api/auth/me` | logged in | the current user |
+| `POST /api/auth/logout` | logged in | `204`; revokes this token (later requests with it are `401`) |
 | `GET /api/datasets` | catalog | datasets the caller may see: columns, types, definitions, row counts, filters |
 | `GET /api/datasets/{name}` | catalog | one of them (`403` if not granted, `404` if unknown) |
 | `GET /api/datasets/{name}/rows` | preview | rows filtered by `start`, `end` (dates, inclusive) and `facility_id` (repeatable), ordered by key; `limit` ≤ 1000, `offset` ≤ 10,000,000, `total` |
@@ -220,8 +221,8 @@ Sign in with one of the test users above. What each screen does:
 | SQL | roles with `query` | editor (Ctrl+Enter), results with paging, timing and `cached`, errors with their code, schema panel, history, CSV export |
 | Refresh | Admin | start an incremental or full refresh, follow its steps, see rows, the new build, DQ findings or why it failed |
 
-The session survives reloads (token in `localStorage`, checked with `/api/auth/me`); when it expires
-you're signed out with a notice. Hiding links is only a convenience: every request is authorized by
+The session survives reloads (token in `localStorage`, checked with `/api/auth/me`). Sign out revokes
+the token on the server too; when it expires, you're signed out with a notice. Hiding links is only a convenience: every request is authorized by
 the API (DECISIONS.md #26).
 
 ## Documents
