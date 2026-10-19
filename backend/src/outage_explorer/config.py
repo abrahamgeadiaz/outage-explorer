@@ -35,7 +35,7 @@ class Settings(BaseSettings):
     query_timeout_seconds: float = 10.0  # user SQL is interrupted after this long
     query_max_result_bytes: int = 20_000_000  # a query page larger than this is refused (approx.)
     query_cache_ttl_seconds: float = 300.0  # 0 disables the query result cache
-    query_cache_max_rows: int = 200_000  # rows kept across all cached results (memory bound)
+    query_cache_max_bytes: int = 100_000_000  # approx. size of all cached results (memory bound)
 
     @property
     def data_path(self) -> Path:

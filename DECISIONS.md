@@ -422,8 +422,9 @@ filled in with the step that settles them, in the same commit as the code.
 
 - **Choice:** an in-process LRU cache of query results under
   `(grant_key, build_id, SQL regenerated from the checked tree with its page)`. Entries expire after
-  `QUERY_CACHE_TTL_SECONDS` (default 300). Memory is bounded by `QUERY_CACHE_MAX_ROWS` (default
-  200,000 rows across all entries), and a successful refresh clears the cache. The response says
+  `QUERY_CACHE_TTL_SECONDS` (default 300). Memory is bounded by `QUERY_CACHE_MAX_BYTES` (default
+  100 MB across all entries, measured like the result cap in #27; it was a row count until the security
+  review showed one row can hold a long string), and a successful refresh clears the cache. The response says
   `cached: true`.
 - **Rejected:** keying by user, or by the SQL text alone.
 - **Why:**

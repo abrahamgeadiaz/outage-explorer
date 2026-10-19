@@ -177,7 +177,7 @@ a time; send `offset = next_offset` for the next page (stable when the query has
 Queries stop after 10 s (`QUERY_TIMEOUT_SECONDS`), and a page larger than 20 MB is refused
 (`QUERY_MAX_RESULT_BYTES`). Results are cached
 for 5 minutes per role grant and model build (`cached: true` in the response; `QUERY_CACHE_TTL_SECONDS`,
-`QUERY_CACHE_MAX_ROWS`, `0` disables), and every refresh clears the cache (DECISIONS.md #24). See DECISIONS.md #5 and #6.
+`QUERY_CACHE_MAX_BYTES`, `0` disables), and every refresh clears the cache (DECISIONS.md #24). See DECISIONS.md #5 and #6.
 
 ```bash
 curl -s -X POST localhost:8000/api/query -H "Authorization: Bearer <access_token>" \

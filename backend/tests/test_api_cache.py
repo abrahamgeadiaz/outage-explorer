@@ -89,7 +89,7 @@ def test_errors_are_not_cached(client, api_model, engine_calls):
 def test_entries_expire(api_settings, api_model, engine_calls):
     now = [1000.0]
     app = create_app(api_settings)
-    app.state.query_cache = QueryCache(ttl_seconds=60, max_rows=1000, clock=lambda: now[0])
+    app.state.query_cache = QueryCache(ttl_seconds=60, max_bytes=1_000_000, clock=lambda: now[0])
     with TestClient(app) as c:
         _query(c, "analyst", NATIONAL)
         now[0] += 59
@@ -121,27 +121,40 @@ def test_a_new_build_misses_even_without_a_refresh_job(client, api_settings, api
     assert _query(client, "analyst", NATIONAL).json()["cached"] is False
 
 
+def test_results_are_budgeted_by_their_size_not_their_row_count(api_settings, api_model, engine_calls):
+    # NATIONAL is 3 rows of (date, decimal): 3 * (8 + 8 + 8) = 72 bytes by query.approx_size.
+    app = create_app(api_settings)
+    app.state.query_cache = QueryCache(ttl_seconds=60, max_bytes=71)
+    with TestClient(app) as c:
+        _query(c, "analyst", NATIONAL)
+        assert _query(c, "analyst", NATIONAL).json()["cached"] is False  # too big to keep
+        app.state.query_cache.max_bytes = 72
+        _query(c, "analyst", NATIONAL)
+        assert _query(c, "analyst", NATIONAL).json()["cached"] is True
+    assert len(engine_calls) == 3
+
+
 # --- the cache itself ------------------------------------------------------------------------------
 
 
-def test_row_budget_evicts_least_recently_used():
-    cache = QueryCache(ttl_seconds=60, max_rows=10)
-    cache.put(("g", "b", "a"), "A", rows=4)
-    cache.put(("g", "b", "b"), "B", rows=4)
+def test_size_budget_evicts_least_recently_used():
+    cache = QueryCache(ttl_seconds=60, max_bytes=10)
+    cache.put(("g", "b", "a"), "A", size=4)
+    cache.put(("g", "b", "b"), "B", size=4)
     cache.get(("g", "b", "a"))  # a is now the most recently used
-    cache.put(("g", "b", "c"), "C", rows=4)
+    cache.put(("g", "b", "c"), "C", size=4)
     assert cache.get(("g", "b", "b")) is None
     assert cache.get(("g", "b", "a")) == "A" and cache.get(("g", "b", "c")) == "C"
 
 
 def test_a_result_bigger_than_the_budget_is_not_stored():
-    cache = QueryCache(ttl_seconds=60, max_rows=10)
-    cache.put(("g", "b", "big"), "X", rows=11)
+    cache = QueryCache(ttl_seconds=60, max_bytes=10)
+    cache.put(("g", "b", "big"), "X", size=11)
     assert len(cache) == 0
 
 
-@pytest.mark.parametrize("ttl,max_rows", [(0, 100), (60, 0)])
-def test_zero_disables_the_cache(ttl, max_rows):
-    cache = QueryCache(ttl_seconds=ttl, max_rows=max_rows)
-    cache.put(("g", "b", "q"), "A", rows=1)
+@pytest.mark.parametrize("ttl,max_bytes", [(0, 100), (60, 0)])
+def test_zero_disables_the_cache(ttl, max_bytes):
+    cache = QueryCache(ttl_seconds=ttl, max_bytes=max_bytes)
+    cache.put(("g", "b", "q"), "A", size=1)
     assert cache.get(("g", "b", "q")) is None

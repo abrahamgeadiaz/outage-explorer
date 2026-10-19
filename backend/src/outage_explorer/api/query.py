@@ -131,7 +131,7 @@ def query(
 
     started = time.perf_counter()
     with store.connect(settings.data_path, manifest, grant) as con:
-        description, rows, _ = run(
+        description, rows, size = run(
             con, page.sql(), settings.query_timeout_seconds, settings.query_max_result_bytes
         )
     elapsed = int((time.perf_counter() - started) * 1000)
@@ -150,5 +150,5 @@ def query(
         ordered=checked.tree.args.get("order") is not None,
         elapsed_ms=elapsed,
     )
-    cache.put(key, result, rows=len(rows))
+    cache.put(key, result, size=size)
     return result

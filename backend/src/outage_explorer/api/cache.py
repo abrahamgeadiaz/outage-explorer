@@ -9,7 +9,8 @@ A result is stored under (grant key, build id, the SQL that ran). That makes thr
 - the key is the SQL regenerated from the parse tree, page included, so whitespace and keyword case
   don't matter, and each page is its own entry.
 
-Memory is bounded by a total row budget, evicting the least recently used results first.
+Memory is bounded by a total size budget (query.approx_size of the rows), evicting the least recently
+used results first. A row count would not bound it: one row can hold a long string (DECISIONS #27).
 """
 
 import threading
@@ -25,20 +26,20 @@ CacheKey = tuple[str, str, str]  # (grant_key, build_id, sql)
 @dataclass
 class _Entry:
     value: Any
-    rows: int
+    size: int
     stored_at: float
 
 
 class QueryCache:
-    def __init__(self, ttl_seconds: float, max_rows: int, clock: Callable[[], float] = time.monotonic):
-        self.ttl, self.max_rows, self.clock = ttl_seconds, max_rows, clock
+    def __init__(self, ttl_seconds: float, max_bytes: int, clock: Callable[[], float] = time.monotonic):
+        self.ttl, self.max_bytes, self.clock = ttl_seconds, max_bytes, clock
         self._entries: OrderedDict[CacheKey, _Entry] = OrderedDict()
-        self._rows = 0
+        self._size = 0
         self._lock = threading.Lock()
 
     @property
     def enabled(self) -> bool:
-        return self.ttl > 0 and self.max_rows > 0
+        return self.ttl > 0 and self.max_bytes > 0
 
     def get(self, key: CacheKey) -> Any | None:
         with self._lock:
@@ -51,25 +52,25 @@ class QueryCache:
             self._entries.move_to_end(key)
             return entry.value
 
-    def put(self, key: CacheKey, value: Any, rows: int) -> None:
-        cost = max(rows, 1)
-        if not self.enabled or cost > self.max_rows:
+    def put(self, key: CacheKey, value: Any, size: int) -> None:
+        cost = max(size, 1)
+        if not self.enabled or cost > self.max_bytes:
             return
         with self._lock:
             if key in self._entries:
                 self._drop(key)
             self._entries[key] = _Entry(value, cost, self.clock())
-            self._rows += cost
-            while self._rows > self.max_rows:
+            self._size += cost
+            while self._size > self.max_bytes:
                 self._drop(next(iter(self._entries)))  # least recently used
 
     def clear(self) -> None:
         with self._lock:
             self._entries.clear()
-            self._rows = 0
+            self._size = 0
 
     def __len__(self) -> int:
         return len(self._entries)
 
     def _drop(self, key: CacheKey) -> None:
-        self._rows -= self._entries.pop(key).rows
+        self._size -= self._entries.pop(key).size
