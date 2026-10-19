@@ -29,6 +29,9 @@ class Settings(BaseSettings):
     # Signs the API's access tokens. The app refuses to start without one (api/auth.py).
     jwt_secret: SecretStr = SecretStr("")
     jwt_ttl_minutes: int = 60
+    login_max_failures: int = 5  # per client and username within the window (0 disables)
+    login_max_failures_per_client: int = 20  # per client across all usernames (0 disables)
+    login_window_seconds: float = 300.0
     query_timeout_seconds: float = 10.0  # user SQL is interrupted after this long
     query_cache_ttl_seconds: float = 300.0  # 0 disables the query result cache
     query_cache_max_rows: int = 200_000  # rows kept across all cached results (memory bound)

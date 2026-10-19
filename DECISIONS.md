@@ -328,8 +328,9 @@ filled in with the step that settles them, in the same commit as the code.
     runs the hash check, so the response time doesn't reveal which usernames exist.
   - The app refuses to start without a `JWT_SECRET` of at least 32 characters, instead of signing
     tokens with an empty key.
-  - Simplified, as the brief allows: there is no refresh token, logout or rate limiting. Users live in
-    code (`api/users.py`); swapping in a database or an OIDC provider only touches `auth.py` and `users.py`.
+  - Simplified, as the brief allows: there is no refresh token or logout. Failed logins are
+    rate-limited (#25). Users live in code (`api/users.py`); swapping in a database or an OIDC
+    provider only touches `auth.py` and `users.py`.
 
   Where it lives: `api/auth.py`, `api/users.py`, `api/policy.py` (role → capabilities).
 
@@ -442,3 +443,27 @@ filled in with the step that settles them, in the same commit as the code.
     with fewer hits; a shared one (Redis) would need the same key.
 
   Where it lives: `api/cache.py`; used in `api/query.py`; cleared from `api/refresh.py`.
+
+### 25. Login rate limiting per (client, username) and per client, never per username alone
+
+- **Choice:** failed logins are counted in a 5-minute sliding window. After 5 for one username from one
+  client, or 20 from one client across all usernames, the next attempt gets `429 rate_limited` with
+  `Retry-After`, **before** the password is checked, so even the right password is refused until the
+  window frees up. A successful login clears that pair's count. The client is the connection's
+  address. Limits come from `LOGIN_MAX_FAILURES`, `LOGIN_MAX_FAILURES_PER_CLIENT` and
+  `LOGIN_WINDOW_SECONDS`.
+- **Rejected:** locking a username after N failures from anywhere.
+- **Why:**
+  - A lock per username alone is itself an attack: anyone can keep a real Analyst locked out by
+    failing on purpose. Per (client, username), an attacker only locks themselves out; the real user,
+    on another address, logs in (test).
+  - The per-client total stops the other pattern, one common password tried against many usernames.
+  - The check runs before the password is verified. Otherwise a blocked attacker would still learn
+    from which attempts succeed, and the limit would only slow the responses down.
+  - `X-Forwarded-For` is ignored: a client can set it to a new address on every request (test).
+    Behind a reverse proxy, the proxy's real-IP setting has to supply the address instead.
+  - Limits: per process and in memory, with at most 10,000 tracked keys so a flood of usernames can't
+    grow it. An attacker with many addresses is not stopped. In production, login would go through an
+    identity provider with its own protections (#19).
+
+  Where it lives: `api/ratelimit.py`; used in `api/auth.py` (`login`).

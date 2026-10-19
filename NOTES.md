@@ -121,3 +121,10 @@ Running log, kept up to date while building — not written at the end.
   left out of the key, expiry one tick late, evicting the newest entry instead of the least recently
   used, a hit not counting as a use, a refresh not clearing the cache. The tests count the SQL that
   actually reaches DuckDB, so a "hit" that secretly re-runs the query would also fail.
+- **Mutation checks on login rate limiting** (each made a test fail): the limit never checked, a
+  success not clearing the count, the window boundary off by one, usernames not normalized ("Analyst"
+  counted apart from "analyst"), the per-client total not counted, no cap on tracked keys.
+  "Retry-After computed from the oldest failure" survived at first. In the normal flow it's
+  equivalent: a blocked pair records no more failures, so there are never more than the limit.
+  Concurrent requests can exceed it, though, so a unit test now covers that case, and the mutation
+  fails. My first version of that test had its own arithmetic wrong; the code was right.

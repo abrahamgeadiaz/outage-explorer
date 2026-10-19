@@ -9,6 +9,7 @@ from fastapi import FastAPI
 from outage_explorer.api import auth, catalog, preview, query, refresh
 from outage_explorer.api.cache import QueryCache
 from outage_explorer.api.errors import install_handlers
+from outage_explorer.api.ratelimit import LoginLimiter
 from outage_explorer.config import Settings, get_settings
 from outage_explorer.model.build import load_current
 
@@ -23,6 +24,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         description="Catalog, preview, read-only SQL and refresh over the EIA nuclear outage model.",
     )
     app.state.settings = settings
+    app.state.login_limiter = LoginLimiter(
+        settings.login_max_failures, settings.login_max_failures_per_client, settings.login_window_seconds
+    )
     app.state.query_cache = QueryCache(settings.query_cache_ttl_seconds, settings.query_cache_max_rows)
     app.state.refresh_jobs = refresh.RefreshJobs(settings, on_new_build=app.state.query_cache.clear)
     install_handlers(app)

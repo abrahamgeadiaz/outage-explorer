@@ -190,7 +190,8 @@ or `interrupted`. `GET /api/refresh` lists recent jobs. An incremental refresh t
 build is served from the next request (DECISIONS.md #4).
 
 Every error has the same shape, `{"error": {"code": "...", "message": "..."}}`: `401 unauthenticated`
-(no, invalid or expired token), `401 invalid_credentials`, `403 forbidden`, `400 filter_not_supported` / `invalid_filter`,
+(no, invalid or expired token), `401 invalid_credentials`, `403 forbidden`, `429 rate_limited` (5 failed logins for a username from one address, or 20 from one
+address, within 5 minutes; `Retry-After` says when to try again), `400 filter_not_supported` / `invalid_filter`,
 `400` SQL rejections (`read_only`, `one_statement_only`, `function_not_allowed`, `source_not_allowed`,
 `unknown_table`, `syntax_error`, `query_error`), `408 query_timeout`, `409 refresh_in_progress`,
 `404 dataset_not_found`, `422 invalid_request`,

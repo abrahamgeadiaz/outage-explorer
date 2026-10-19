@@ -20,6 +20,7 @@ from pydantic import BaseModel
 
 from outage_explorer.api.errors import ApiError, forbidden, unauthenticated
 from outage_explorer.api.policy import ROLE_CAPABILITIES, Capability, can
+from outage_explorer.api.ratelimit import LoginLimiter
 from outage_explorer.api.users import USERS, User
 from outage_explorer.config import Settings
 
@@ -153,13 +154,25 @@ class TokenOut(BaseModel):
     user: UserOut
 
 
-@router.post("/login", response_model=TokenOut)
+@router.post("/login", response_model=TokenOut, responses={429: {"description": "Too many failed logins"}})
 def login(body: LoginRequest, request: Request) -> TokenOut:
     settings: Settings = request.app.state.settings
+    limiter: LoginLimiter = request.app.state.login_limiter
+    client = request.client.host if request.client else "unknown"
+    if (wait := limiter.retry_after(client, body.username)) is not None:
+        # Before the password check: while blocked, guessing (even right) gains nothing.
+        raise ApiError(
+            429,
+            "rate_limited",
+            f"too many failed logins; try again in {wait} s",
+            headers={"Retry-After": str(wait)},
+        )
     user = authenticate(body.username, body.password)
     if user is None:
+        limiter.failed(client, body.username)
         # Same answer for an unknown user and a wrong password.
         raise ApiError(401, "invalid_credentials", "invalid username or password")
+    limiter.succeeded(client, body.username)
     return TokenOut(
         access_token=issue_token(settings, user),
         expires_in=settings.jwt_ttl_minutes * 60,
