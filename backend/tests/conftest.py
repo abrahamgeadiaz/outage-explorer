@@ -3,12 +3,14 @@ from collections import defaultdict
 from datetime import date, datetime
 from pathlib import Path
 
+import duckdb
 import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
 
 from outage_explorer.connector.routes import ROUTES
 from outage_explorer.connector.validate import schema_for
+from outage_explorer.model.build import table_globs
 
 FIXTURES = Path(__file__).parent / "fixtures" / "eia"
 
@@ -116,3 +118,11 @@ def fleet_rows(
 
 def _pct(outage: float, capacity: float) -> float:
     return round(100 * outage / capacity, 2) if capacity > 0 else 0.0
+
+
+def query_model(settings, sql: str) -> list[tuple]:
+    """Run SQL against the live model build, one view per table."""
+    con = duckdb.connect()
+    for name, glob in table_globs(settings.data_path).items():
+        con.execute(f"CREATE VIEW {name} AS SELECT * FROM read_parquet('{glob}', hive_partitioning = true)")
+    return con.execute(sql).fetchall()

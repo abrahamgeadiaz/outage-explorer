@@ -132,6 +132,47 @@ DIM_GENERATOR = Table(
     foreign_keys={("facility_id",): "dim_facility"},
 )
 
+METRIC_FLEET_OFFLINE = Table(
+    "metric_fleet_offline_daily",
+    "US-08: share of total fleet capacity offline per day, with how complete that day's data is. "
+    "offline_pct uses the units EIA reported that day (so it matches EIA's national figure). Units "
+    "missing that day are never filled in: their capacity is reported, and offline_pct_min/max give "
+    "the range the true share falls in.",
+    "one row per day",
+    ("period",),
+    (
+        _PERIOD,
+        Column("capacity_mw", MW, "Σ capacity_mw of the units reported that day with capacity > 0."),
+        Column("outage_mw", MW, "Σ outage_mw of those units."),
+        Column("offline_pct", "DOUBLE", "100 * outage_mw / capacity_mw: the US-08 metric."),
+        Column("percent_outage_eia", PCT_EIA, "EIA's national percentOutage, for comparison (rounded)."),
+        Column("units_reported", "INTEGER", "Units with a row and capacity > 0 that day."),
+        Column(
+            "units_missing",
+            "INTEGER",
+            "Units inside their reporting lifetime (dim_generator) with no row that day, in any grain.",
+        ),
+        Column("missing_units", "VARCHAR[]", "Those units, as 'facility_id/generator_id'."),
+        Column("missing_capacity_mw", MW, "Σ last reported capacity_mw of the missing units."),
+        Column(
+            "units_zero_capacity", "INTEGER", "Units reported with capacity_mw <= 0 (left out of the share)."
+        ),
+        Column(
+            "offline_pct_min",
+            "DOUBLE",
+            "Share if every missing unit was fully online: outage / (capacity + missing capacity).",
+        ),
+        Column(
+            "offline_pct_max",
+            "DOUBLE",
+            "Share if every missing unit was fully offline: (outage + missing) / (capacity + missing).",
+        ),
+        Column("is_complete", "BOOLEAN", "No missing and no zero-capacity units: offline_pct is exact."),
+    ),
+    foreign_keys={("period",): "fact_national_daily"},
+)
+
 TABLES: dict[str, Table] = {
-    t.name: t for t in (DIM_FACILITY, DIM_GENERATOR, FACT_NATIONAL, FACT_FACILITY, FACT_GENERATOR)
+    t.name: t
+    for t in (DIM_FACILITY, DIM_GENERATOR, FACT_NATIONAL, FACT_FACILITY, FACT_GENERATOR, METRIC_FLEET_OFFLINE)
 }

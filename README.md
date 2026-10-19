@@ -100,10 +100,16 @@ switches to it atomically, so readers never see a half-written model. The newest
 | `fact_generator_daily` | `period, facility_id, generator_id` | the same per unit (finest grain) |
 | `dim_facility` | `facility_id` | plant name, first and last day reported, units, status |
 | `dim_generator` | `facility_id, generator_id` | unit lifetime, reported and missing days, latest capacity, status |
+| `metric_fleet_offline_daily` | `period` | **US-08**: % of fleet capacity offline, plus missing units and a min/max range |
 
 MW values are `DECIMAL(12,3)`, so the grains add up exactly. `percent_outage` is recomputed from MW
 (NULL when capacity is 0). EIA's rounded value is kept as `percent_outage_eia`. Column descriptions
 live in `backend/src/outage_explorer/model/tables.py`.
+
+**US-08 metric.** `offline_pct = 100 × Σ outage_mw / Σ capacity_mw` over the units EIA reported that
+day, which matches EIA's national percentage. Some days a unit is missing from every grain: it is
+not filled in. `missing_units`, `missing_capacity_mw` and `offline_pct_min`/`offline_pct_max` show
+what is left out, and `is_complete` is false (DECISIONS.md #17).
 
 ## Documents
 

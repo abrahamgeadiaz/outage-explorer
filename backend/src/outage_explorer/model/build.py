@@ -89,6 +89,57 @@ _SELECTS: dict[str, str] = {
         SELECT period, facility AS facility_id, generator AS generator_id, facility_name, {_VALUES_SQL}
         FROM src_generator
     """,
+    # US-08. A unit is "expected" on every day between its first and last row (dim_generator); an
+    # expected unit with no row is missing, and its last reported capacity (ASOF join) sizes the gap.
+    "metric_fleet_offline_daily": """
+        WITH reported AS (
+            SELECT period,
+                   sum(capacity_mw) FILTER (WHERE capacity_mw > 0) AS capacity_mw,
+                   sum(outage_mw) FILTER (WHERE capacity_mw > 0) AS outage_mw,
+                   count(*) FILTER (WHERE capacity_mw > 0) AS units_reported,
+                   count(*) FILTER (WHERE capacity_mw <= 0) AS units_zero_capacity
+            FROM fact_generator_daily GROUP BY period
+        ),
+        missing AS (
+            SELECT n.period, d.facility_id, d.generator_id
+            FROM fact_national_daily n
+            JOIN dim_generator d ON n.period BETWEEN d.first_period AND d.last_period
+            ANTI JOIN fact_generator_daily g
+                ON g.period = n.period AND g.facility_id = d.facility_id AND g.generator_id = d.generator_id
+        ),
+        missing_by_day AS (
+            SELECT m.period,
+                   count(*) AS units_missing,
+                   list(m.facility_id || '/' || m.generator_id ORDER BY m.facility_id, m.generator_id)
+                       AS missing_units,
+                   sum(g.capacity_mw) AS missing_capacity_mw
+            FROM missing m
+            ASOF LEFT JOIN fact_generator_daily g
+                ON g.facility_id = m.facility_id AND g.generator_id = m.generator_id AND m.period >= g.period
+            GROUP BY m.period
+        ),
+        day AS (
+            SELECT n.period, n.percent_outage_eia,
+                   coalesce(r.capacity_mw, 0) AS capacity_mw,
+                   coalesce(r.outage_mw, 0) AS outage_mw,
+                   coalesce(r.units_reported, 0) AS units_reported,
+                   coalesce(r.units_zero_capacity, 0) AS units_zero_capacity,
+                   coalesce(m.units_missing, 0) AS units_missing,
+                   coalesce(m.missing_units, []) AS missing_units,
+                   coalesce(m.missing_capacity_mw, 0) AS missing_capacity_mw
+            FROM fact_national_daily n
+            LEFT JOIN reported r USING (period)
+            LEFT JOIN missing_by_day m USING (period)
+        )
+        SELECT *,
+               100 * outage_mw::DOUBLE / nullif(capacity_mw, 0)::DOUBLE AS offline_pct,
+               100 * outage_mw::DOUBLE / nullif(capacity_mw + missing_capacity_mw, 0)::DOUBLE
+                   AS offline_pct_min,
+               100 * (outage_mw + missing_capacity_mw)::DOUBLE
+                   / nullif(capacity_mw + missing_capacity_mw, 0)::DOUBLE AS offline_pct_max,
+               units_missing = 0 AND units_zero_capacity = 0 AS is_complete
+        FROM day
+    """,
 }
 
 

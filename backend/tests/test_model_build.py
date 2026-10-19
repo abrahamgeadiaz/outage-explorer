@@ -12,7 +12,7 @@ from outage_explorer.connector.extract import ExtractionLockedError
 from outage_explorer.model import build as build_mod
 from outage_explorer.model.build import ModelBuildError, build_model, load_current, table_globs
 from outage_explorer.model.tables import TABLES
-from tests.conftest import fleet_rows
+from tests.conftest import fleet_rows, query_model
 
 DAYS = [date(2026, 1, 1) + timedelta(days=i) for i in range(5)]
 UNITS = {("46", "1"): 1000.0, ("46", "2"): 1100.5, ("204", "1"): 800.25}
@@ -21,13 +21,6 @@ UNITS = {("46", "1"): 1000.0, ("46", "2"): 1100.5, ("204", "1"): 800.25}
 @pytest.fixture
 def settings(tmp_path):
     return Settings(data_dir=tmp_path)
-
-
-def query(settings, sql: str) -> list[tuple]:
-    con = duckdb.connect()
-    for name, glob in table_globs(settings.data_path).items():
-        con.execute(f"CREATE VIEW {name} AS SELECT * FROM read_parquet('{glob}', hive_partitioning = true)")
-    return con.execute(sql).fetchall()
 
 
 def test_builds_every_table_with_declared_types(settings, write_fleet):
@@ -53,7 +46,7 @@ def test_grains_reconcile_exactly_with_decimals(settings, write_fleet):
     units = {("46", "1"): 0.1, ("46", "2"): 0.2, ("204", "1"): 0.3}
     write_fleet(fleet_rows(units, DAYS[:1]))
     build_model(settings)
-    [(nat, fac, gen)] = query(
+    [(nat, fac, gen)] = query_model(
         settings,
         """SELECT (SELECT capacity_mw FROM fact_national_daily),
                   (SELECT sum(capacity_mw) FROM fact_facility_daily),
@@ -69,7 +62,7 @@ def test_percent_is_recomputed_and_null_without_capacity(settings, write_fleet):
     zero["generator"][0]["percent_outage"] = 11.0
     write_fleet(zero)
     build_model(settings)
-    got = query(
+    got = query_model(
         settings, "SELECT period, percent_outage, percent_outage_eia FROM fact_generator_daily ORDER BY 1"
     )
     assert got == [(DAYS[0], 25.0, Decimal("25.00")), (DAYS[1], None, Decimal("11.00"))]
@@ -82,7 +75,9 @@ def test_duplicate_raw_keys_keep_the_latest_ingested_row(settings, write_fleet, 
     manifest = build_model(settings)
 
     assert manifest["source"]["national"]["duplicates_dropped"] == 1
-    [(cap,)] = query(settings, f"SELECT capacity_mw FROM fact_national_daily WHERE period = '{DAYS[0]}'")
+    [(cap,)] = query_model(
+        settings, f"SELECT capacity_mw FROM fact_national_daily WHERE period = '{DAYS[0]}'"
+    )
     assert cap == Decimal("2900.750")
 
 
@@ -102,7 +97,7 @@ def test_dimensions_track_lifetime_gaps_and_retirement(settings, write_fleet):
     missing = {(DAYS[2], "6462", "1"), (DAYS[3], "6462", "1")} | {(d, "360", "2") for d in DAYS[3:]}
     write_fleet(fleet_rows(units, DAYS, missing=missing))
     build_model(settings)
-    got = query(
+    got = query_model(
         settings,
         """SELECT facility_id, first_period, last_period, reported_days, missing_days, status
            FROM dim_generator ORDER BY facility_id""",

@@ -188,3 +188,24 @@ _Pending: decided in step 6 (query path)._
   every national or fleet query would have to open all of them.
 
   Where it lives: `model/tables.py` (`partitioned_by_year`), `model/build.py` (`_write_table`).
+
+### 17. US-08 (share of fleet capacity offline per day): EIA's denominator, with missing units shown, not filled in
+
+- **Choice:** `metric_fleet_offline_daily.offline_pct` = Σ outage / Σ capacity over the units EIA
+  reported that day (capacity > 0). Every day also says what that number leaves out:
+  - `units_missing` / `missing_units`: units inside their reporting lifetime with no row that day;
+  - `missing_capacity_mw`: their last reported rating;
+  - `offline_pct_min` / `offline_pct_max`: the share if all of them were online / offline;
+  - `units_zero_capacity`;
+  - `is_complete`.
+- **Rejected:** filling in missing units (carrying their last row forward) to keep a stable denominator.
+- **Why:**
+  - On the full history `offline_pct` equals EIA's national `percentOutage` to within EIA's rounding
+    (max 0.005), so the product agrees with the source users already know.
+  - Units do drop out of all three grains: 1,892 of 7,229 days are incomplete (River Bend 564 days,
+    Palisades 1,196, Vogtle 3/4, Watts Bar 2). On those days EIA's denominator quietly shrinks. For
+    example, 2015-02-14 reads 4.89% but the true value lies between 4.84% and 5.80%.
+  - We can't know whether a missing unit was running, so carrying a row forward would invent data.
+    The range is honest and shows how much the gap matters.
+
+  Where it lives: `model/build.py` (`metric_fleet_offline_daily`); definitions in `model/tables.py`.
