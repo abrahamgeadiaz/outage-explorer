@@ -28,8 +28,17 @@ log = logging.getLogger(__name__)
 
 # Applied when a request opens a serving file (together with read_only=True). Without
 # python_enable_replacements=False, `FROM name` would also resolve Python DataFrames / Arrow tables in
-# the calling code's scope.
-SANDBOX = {"enable_external_access": False, "python_enable_replacements": False, "lock_configuration": True}
+# the calling code's scope. The resource limits keep one query from taking the whole machine
+# (DECISIONS #27): DuckDB's defaults are 80% of RAM and every core. Connections to one file share a
+# database instance, so the memory limit holds for all requests reading that file together.
+SANDBOX = {
+    "enable_external_access": False,
+    "python_enable_replacements": False,
+    "memory_limit": "1GB",  # the full grant's file is ~15 MB; this is room for sorts and joins
+    "threads": 2,
+    "max_temp_directory_size": "0GB",  # no spilling to disk: over the limit, the query fails
+    "lock_configuration": True,  # last: the limits above can't be SET back by a query
+}
 
 _build_lock = threading.Lock()  # one process (uvicorn's default): a thread lock is enough
 

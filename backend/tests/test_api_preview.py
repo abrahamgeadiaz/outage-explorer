@@ -168,6 +168,25 @@ def test_serving_connection_is_read_only_and_cannot_reach_files(api_settings, ap
             con.execute(sql.format(generator=generator, tmp=tmp_path.as_posix()))
 
 
+def test_serving_connection_has_resource_limits_a_query_cannot_lift(api_settings, api_model):
+    with store.connect(api_settings.data_path, api_model, granted_tables(Role.VIEWER)) as con:
+        settings = con.execute(
+            "SELECT current_setting('memory_limit'), current_setting('threads'),"
+            " current_setting('max_temp_directory_size')"
+        ).fetchone()
+        assert settings == ("953.6 MiB", 2, "0 bytes")
+        with pytest.raises(duckdb.Error, match="locked"):
+            con.execute("SET memory_limit = '8GB'")
+
+
+def test_a_query_over_the_memory_limit_fails_instead_of_growing(api_settings, api_model):
+    # An aggregate's state is held by DuckDB's buffer manager, so the limit applies to it.
+    sql = "SELECT length(string_agg(repeat('x', 1000000), '')) FROM range(2000)"
+    with store.connect(api_settings.data_path, api_model, granted_tables(Role.VIEWER)) as con:
+        with pytest.raises(duckdb.OutOfMemoryException):
+            con.execute(sql)
+
+
 def test_a_new_build_gets_a_new_file_and_old_ones_are_removed(api_settings, api_model):
     grant = granted_tables(Role.ANALYST)
     store.connect(api_settings.data_path, api_model, grant).close()

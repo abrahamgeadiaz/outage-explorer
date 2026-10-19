@@ -492,3 +492,26 @@ filled in with the step that settles them, in the same commit as the code.
     `503 model_not_built`, which lasts until an Admin refreshes.
 
   Where it lives: `frontend/src/api/client.ts`, `frontend/src/auth/`, `frontend/vite.config.ts`.
+
+### 27. Resource limits on user SQL: one query can't take the server's memory or cores
+
+- **Choice:** every serving connection (#21) opens with `memory_limit = 1GB`, `threads = 2` and
+  `max_temp_directory_size = 0GB`, set before `lock_configuration`, so a query can't `SET` them back.
+  A query over the limit fails with `400 query_error` (out of memory) instead of growing.
+- **Rejected:** DuckDB's defaults (80% of RAM and every core for each query), with the 10 s timeout as
+  the only limit.
+- **Why:**
+  - Found in a security review: the timeout bounds time, not memory, and any signed-in role, Viewer
+    included, can run SQL. A sort, join or aggregate over a crafted expression could ask for gigabytes
+    within the 10 s.
+  - Connections to one serving file share one DuckDB instance, so the limit holds for all requests
+    reading that file together, not per request. The full model is ~15 MB, so 1 GB leaves room for
+    any real analysis.
+  - No spilling to disk: with a temp directory, the same query would fill the disk instead of the
+    memory.
+  - Limit of this layer: DuckDB counts memory held by its operators (sorts, hash tables, aggregate
+    state), not a single huge value built by a scalar function. `repeat('x', 2000000000)` still
+    allocates 2 GB, and its interrupt only lands when the function returns. That is handled in the
+    SQL check, not here (below).
+
+  Where it lives: `api/store.py` (`SANDBOX`).
