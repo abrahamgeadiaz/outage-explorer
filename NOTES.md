@@ -13,7 +13,7 @@ Running log, kept up to date while building — not written at the end.
 | Data model build (`model/`), DQ checks, `outage-sql`, FINDINGS.md queries + tests | Claude Code | Reviewed; types, versioning and the US-08 / missing-unit policy decided by me from the data findings |
 | Web app (`frontend/`): session, routes, dataset, SQL, refresh and US-08 pages + component tests | Claude Code | Reviewed; screens checked in a real browser against the real API |
 | API auth, policy, catalog, preview, serving store, SQL guard, query, refresh jobs (`api/`) + tests | Claude Code | Reviewed; Viewer column grant, role-per-request and the per-grant sandbox decided by me |
-| Security review of the whole repo, and the resource-limit fixes (DECISIONS.md #27) + tests | Claude Code | Reviewed; allow-list over block-list decided by me; scope and order of fixes chosen by me |
+| Security review of the whole repo, the resource-limit fixes (DECISIONS.md #27) and the low findings (login limits, preview offset, logout, CSV) + tests | Claude Code | Reviewed; allow-list over block-list decided by me; scope and order of fixes chosen by me |
 
 ## Things the AI got wrong (and how I caught it)
 
@@ -94,6 +94,10 @@ Running log, kept up to date while building — not written at the end.
     interrupt. Almost every further probe found another amplifier (`lpad`, a width in `printf`, nested
     `replace`: 1 GB from 3 KB of SQL). A block-list would only have lasted until the next one, so the
     guard now accepts only an allow-list of 144 functions whose output is at most linear in their input.
+17. **One endpoint bounded, its twin not.** The generated query endpoint capped `offset`; the preview
+    endpoint only required it to be ≥ 0. The security review flagged it, and a probe confirmed it:
+    `offset=2**63` reached DuckDB as a bound parameter and failed there with an unhandled conversion
+    error, a `500`. Both now share one `MAX_OFFSET`.
 
 ## How I verified generated code (beyond "it ran")
 
@@ -183,3 +187,8 @@ Running log, kept up to date while building — not written at the end.
   query slot never released after an error, the slot never acquired. My first result-cap test never
   reached the check: the test model has 8 rows, so the "big" query stayed under the cap and came back
   200. It now pads each row to go past a small cap.
+- **Mutation checks on the low findings of the review** (each made a test fail): the password length
+  limit removed (an oversized login reached scrypt), the preview offset bound removed, revocation
+  never checked, revoked ids never pruned, every token given the same `jti` (signing out one session
+  signed out all), the web app never calling logout, the web app calling it after an expiry too, the
+  CSV formula guard removed, the guard applied to numbers (`-5` became text).
