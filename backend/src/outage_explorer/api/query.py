@@ -4,6 +4,9 @@ Order of work: capability, then sqlguard.check (one SELECT, plain table names, e
 then every table against the caller's grant, and only then the query runs, on the caller's serving
 file (read-only, no file access, only their tables and columns), with a row cap and a timeout.
 
+Results are cached per grant and build (api/cache.py), but only after the checks above: a cached
+result is never a way around authorization.
+
 Results past max_rows are read page by page: send the next request with `offset = next_offset`. Each
 page re-runs the query, so pages line up only if the query has an ORDER BY over a unique key
 (`ordered` says whether it has one at all) and the build did not change in between (`build_id`).
@@ -47,7 +50,8 @@ class QueryOut(BaseModel):
     truncated: bool  # more rows exist after this page
     next_offset: int | None  # offset of the next page, or None if this was the last
     ordered: bool  # the query has a top-level ORDER BY, so pages are stable across requests
-    elapsed_ms: int
+    elapsed_ms: int  # time the query took when it ran (also for a cached result)
+    cached: bool = False
 
 
 def authorize(user: User, sql: str) -> sqlguard.CheckedQuery:
@@ -90,14 +94,20 @@ def query(
 
     settings = request.app.state.settings
     manifest = live_manifest(settings)
+    grant = granted_tables(user.role)
+    cache = request.app.state.query_cache
+    key = (store.grant_key(grant), manifest["build_id"], page.sql())
+    if (hit := cache.get(key)) is not None:
+        return hit.model_copy(update={"cached": True})
+
     started = time.perf_counter()
-    with store.connect(settings.data_path, manifest, granted_tables(user.role)) as con:
+    with store.connect(settings.data_path, manifest, grant) as con:
         description, rows = run(con, page.sql(), settings.query_timeout_seconds)
     elapsed = int((time.perf_counter() - started) * 1000)
 
     truncated = len(rows) > body.max_rows
     rows = rows[: body.max_rows]
-    return QueryOut(
+    result = QueryOut(
         build_id=manifest["build_id"],
         tables=sorted(checked.tables),
         columns=[ColumnRef(name=d[0], type=str(d[1])) for d in description],
@@ -109,3 +119,5 @@ def query(
         ordered=checked.tree.args.get("order") is not None,
         elapsed_ms=elapsed,
     )
+    cache.put(key, result, rows=len(rows))
+    return result

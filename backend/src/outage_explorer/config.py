@@ -30,6 +30,8 @@ class Settings(BaseSettings):
     jwt_secret: SecretStr = SecretStr("")
     jwt_ttl_minutes: int = 60
     query_timeout_seconds: float = 10.0  # user SQL is interrupted after this long
+    query_cache_ttl_seconds: float = 300.0  # 0 disables the query result cache
+    query_cache_max_rows: int = 200_000  # rows kept across all cached results (memory bound)
 
     @property
     def data_path(self) -> Path:

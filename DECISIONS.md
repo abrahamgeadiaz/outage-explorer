@@ -415,3 +415,30 @@ filled in with the step that settles them, in the same commit as the code.
     result cache (#24) makes the second and later pages cheap when the query is repeated.
 
   Where it lives: `api/sqlguard.py` (`with_page`), `api/query.py`.
+
+### 24. Query result cache keyed by grant, build and the SQL that ran; looked up only after authorization
+
+- **Choice:** an in-process LRU cache of query results under
+  `(grant_key, build_id, SQL regenerated from the checked tree with its page)`. Entries expire after
+  `QUERY_CACHE_TTL_SECONDS` (default 300). Memory is bounded by `QUERY_CACHE_MAX_ROWS` (default
+  200,000 rows across all entries), and a successful refresh clears the cache. The response says
+  `cached: true`.
+- **Rejected:** keying by user, or by the SQL text alone.
+- **Why:**
+  - "Can never serve a result to a user who couldn't run the query" is guaranteed twice over. First,
+    the lookup happens after `authorize`, so a Viewer asking for a query an Analyst cached still gets
+    `403` (test). Second, the grant key is a hash of every table and column the role may see. Two roles
+    share an entry only when their grants are identical, which means the same data. Analyst and Admin
+    do; Viewer and Analyst don't, even for a query over `fact_national_daily` that both may run.
+  - Keying by user would give the same safety but fewer hits. Users with the same grant can see the
+    same data, so sharing between them leaks nothing.
+  - SQL text alone would be the bug the brief warns about: an Analyst's cached result served to a
+    Viewer. Using the regenerated SQL also means whitespace and keyword case don't create misses, and
+    each page (`LIMIT`/`OFFSET`) is its own entry.
+  - The build id in the key means a result is never stale, even when the model is rebuilt outside the
+    API (`uv run outage-model`), so clearing on refresh is only about freeing memory. Errors and
+    timeouts aren't cached.
+  - Simplified: per process. With several API workers each would have its own cache, still correct,
+    with fewer hits; a shared one (Redis) would need the same key.
+
+  Where it lives: `api/cache.py`; used in `api/query.py`; cleared from `api/refresh.py`.

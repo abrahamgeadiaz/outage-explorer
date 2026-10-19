@@ -17,6 +17,7 @@ import json
 import logging
 import threading
 import uuid
+from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Annotated, Literal
@@ -71,8 +72,9 @@ class RefreshIn(BaseModel):
 
 
 class RefreshJobs:
-    def __init__(self, settings: Settings):
+    def __init__(self, settings: Settings, on_new_build: Callable[[], None] = lambda: None):
         self.settings = settings
+        self.on_new_build = on_new_build  # e.g. clear the query cache
         self.dir = meta_dir(settings.data_path) / "refresh_jobs"
         self._lock = threading.Lock()
         self._jobs: dict[str, JobOut] = self._load()
@@ -124,6 +126,7 @@ class RefreshJobs:
 
             manifest = build_model(self.settings)
             job.build_id = manifest["build_id"]
+            self.on_new_build()
             job.dq_issues = _by_severity(manifest.get("data_quality", {}))
             job.status = "succeeded" if summary["status"] == "success" else "partial"
         except RefreshFailed as exc:

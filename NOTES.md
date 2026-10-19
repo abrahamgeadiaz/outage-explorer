@@ -117,3 +117,7 @@ Running log, kept up to date while building — not written at the end.
   counting from the current offset. The last one first made the paging test loop forever, because it
   kept requesting offset 3. That test now gives up after 10 pages, so a broken `next_offset` fails
   instead of hanging the suite.
+- **Mutation checks on the query cache** (each made a test fail): the grant, the build or the page
+  left out of the key, expiry one tick late, evicting the newest entry instead of the least recently
+  used, a hit not counting as a use, a refresh not clearing the cache. The tests count the SQL that
+  actually reaches DuckDB, so a "hit" that secretly re-runs the query would also fail.
