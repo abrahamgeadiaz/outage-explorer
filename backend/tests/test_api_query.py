@@ -182,3 +182,44 @@ def test_the_cap_is_applied_by_the_engine_not_after_fetching(client, api_model, 
     )
     _query(client, "analyst", "SELECT * FROM fact_generator_daily", max_rows=2)
     assert sent == ["SELECT * FROM fact_generator_daily LIMIT 3"]  # one extra row detects the cut
+
+
+# --- paging past max_rows --------------------------------------------------------------------------
+
+ORDERED = "SELECT period, facility_id, generator_id FROM fact_generator_daily ORDER BY 1 DESC, 2, 3"
+
+
+def test_next_offset_walks_every_row_exactly_once(client, api_model):
+    everything = _query(client, "analyst", ORDERED).json()["rows"]
+    pages, offset = [], 0
+    while offset is not None:
+        assert len(pages) < 10, "paging does not terminate"
+        body = _query(client, "analyst", ORDERED, max_rows=3, offset=offset).json()
+        assert body["offset"] == offset and body["ordered"] is True
+        pages.append(body["rows"])
+        offset = body["next_offset"]
+    assert [len(p) for p in pages] == [3, 3, 2]
+    assert [r for p in pages for r in p] == everything
+
+
+def test_paging_stays_inside_the_query_own_limit(client, api_model):
+    body = _query(client, "analyst", ORDERED + " LIMIT 4", max_rows=3, offset=3).json()
+    assert body["row_count"] == 1 and body["truncated"] is False and body["next_offset"] is None
+
+
+def test_an_offset_past_the_end_is_an_empty_last_page(client, api_model):
+    body = _query(client, "analyst", ORDERED, offset=100).json()
+    assert body["rows"] == [] and body["next_offset"] is None
+
+
+def test_unordered_queries_are_flagged(client, api_model):
+    assert _query(client, "analyst", "SELECT * FROM fact_national_daily").json()["ordered"] is False
+
+
+def test_percent_limit_is_paged_from_outside(client, api_model):
+    body = _query(client, "analyst", ORDERED + " LIMIT 50 PERCENT", max_rows=2, offset=2).json()
+    assert body["row_count"] == 2 and body["truncated"] is False  # 50% of 8 rows = 4
+
+
+def test_offset_is_bounded(client, api_model):
+    assert _query(client, "analyst", "SELECT 1", offset=-1).status_code == 422

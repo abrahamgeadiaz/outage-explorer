@@ -7,7 +7,7 @@ import duckdb
 import pytest
 
 from outage_explorer.api import sqlguard
-from outage_explorer.api.sqlguard import SqlRejected, check, with_row_cap
+from outage_explorer.api.sqlguard import SqlRejected, check, with_page
 from outage_explorer.config import Settings
 from outage_explorer.model import explore
 from outage_explorer.model.build import build_model
@@ -128,20 +128,38 @@ def test_overlong_queries_are_rejected():
 
 
 @pytest.mark.parametrize(
-    "sql,expected",
+    "sql,offset,expected",
     [
-        ("SELECT * FROM dim_facility", "SELECT * FROM dim_facility LIMIT 11"),
-        ("SELECT * FROM dim_facility LIMIT 3", "SELECT * FROM dim_facility LIMIT 3"),
-        ("SELECT * FROM dim_facility LIMIT 500", "SELECT * FROM dim_facility LIMIT 11"),
-        ("SELECT * FROM dim_facility OFFSET 5", "SELECT * FROM dim_facility LIMIT 11 OFFSET 5"),
-        ("SELECT 1 UNION ALL SELECT 2 ORDER BY 1 DESC",
-         "SELECT 1 UNION ALL SELECT 2 ORDER BY 1 DESC LIMIT 11"),
-        ("SELECT * FROM dim_facility LIMIT (SELECT 2)",
-         "SELECT * FROM (SELECT * FROM dim_facility LIMIT (SELECT 2)) AS capped LIMIT 11"),
+        ("SELECT * FROM dim_facility", 0, "SELECT * FROM dim_facility LIMIT 11"),
+        ("SELECT * FROM dim_facility", 20, "SELECT * FROM dim_facility LIMIT 11 OFFSET 20"),
+        ("SELECT * FROM dim_facility LIMIT 3", 0, "SELECT * FROM dim_facility LIMIT 3"),
+        ("SELECT * FROM dim_facility LIMIT 500", 0, "SELECT * FROM dim_facility LIMIT 11"),
+        ("SELECT * FROM dim_facility LIMIT 15", 10, "SELECT * FROM dim_facility LIMIT 5 OFFSET 10"),
+        ("SELECT * FROM dim_facility LIMIT 15", 30, "SELECT * FROM dim_facility LIMIT 0 OFFSET 30"),
+        ("SELECT * FROM dim_facility OFFSET 5", 0, "SELECT * FROM dim_facility LIMIT 11 OFFSET 5"),
+        ("SELECT * FROM dim_facility LIMIT 20 OFFSET 5", 10, "SELECT * FROM dim_facility LIMIT 10 OFFSET 15"),
+        ("SELECT 1 UNION ALL SELECT 2 ORDER BY 1 DESC", 1,
+         "SELECT 1 UNION ALL SELECT 2 ORDER BY 1 DESC LIMIT 11 OFFSET 1"),
+        ("SELECT * FROM dim_facility LIMIT (SELECT 2)", 0,
+         "SELECT * FROM (SELECT * FROM dim_facility LIMIT (SELECT 2)) AS paged LIMIT 11"),
+        ("SELECT * FROM dim_facility LIMIT 10 PERCENT", 4,
+         "SELECT * FROM (SELECT * FROM dim_facility LIMIT 10 PERCENT) AS paged LIMIT 11 OFFSET 4"),
     ],
 )  # fmt: skip
-def test_row_cap_keeps_order_and_smaller_limits(sql, expected):
-    assert with_row_cap(check(sql, KNOWN), 11).sql() == expected
+def test_page_is_merged_into_the_query_limit_and_offset(sql, offset, expected):
+    assert with_page(check(sql, KNOWN), offset, 11).sql() == expected
+
+
+def test_pages_of_a_limited_ordered_query_match_slices_of_its_result(model_con):
+    sql = (
+        "SELECT period, facility_id, generator_id FROM fact_generator_daily "
+        "ORDER BY 1 DESC, 2, 3 LIMIT 3 OFFSET 1"
+    )
+    full = model_con.sql(sql).fetchall()
+    checked = check(sql, KNOWN)
+    pages = [model_con.sql(with_page(checked, o, 2).sql()).fetchall() for o in (0, 2, 4, 6)]
+    assert len(full) == 3
+    assert pages == [full[0:2], full[2:3], [], []]
 
 
 @pytest.fixture

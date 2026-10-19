@@ -137,18 +137,37 @@ def _is_cte_reference(table: exp.Table, name: str) -> bool:
     return False
 
 
-def with_row_cap(query: CheckedQuery, cap: int) -> CheckedQuery:
-    """The same query returning at most `cap` rows (an existing smaller LIMIT is kept)."""
+def with_page(query: CheckedQuery, offset: int, size: int) -> CheckedQuery:
+    """Rows [offset, offset + size) of the query's own result.
+
+    The page is merged into the query's LIMIT / OFFSET, so its ORDER BY applies exactly: page
+    offset=10, size=5 of `... ORDER BY x LIMIT 12` becomes `LIMIT 2 OFFSET 10`. A LIMIT or OFFSET that
+    is not a plain number (an expression, `LIMIT 10%`) is kept as written, and the page is taken
+    from outside it.
+    """
     tree = query.tree.copy()
-    limit = tree.args.get("limit")
-    current = limit.expression if isinstance(limit, exp.Limit) else None
-    if isinstance(current, exp.Literal) and current.is_int and int(current.this) <= cap:
-        return query
-    if limit is None or isinstance(current, exp.Literal):
-        tree.set("limit", exp.Limit(expression=exp.Literal.number(cap)))
-    else:  # LIMIT <expression>: keep it, cap the result from outside
-        tree = exp.select("*").from_(tree.subquery("capped")).limit(cap)
+    limit, own_offset = _plain_int(tree.args.get("limit")), _plain_int(tree.args.get("offset"))
+    if limit is _NOT_PLAIN or own_offset is _NOT_PLAIN:
+        tree = exp.select("*").from_(tree.subquery("paged"))
+        limit, own_offset = None, None
+    count = size if limit is None else max(0, min(size, limit - offset))
+    tree.set("limit", exp.Limit(expression=exp.Literal.number(count)))
+    start = (own_offset or 0) + offset
+    tree.set("offset", exp.Offset(expression=exp.Literal.number(start)) if start else None)
     return CheckedQuery(tree, query.tables)
+
+
+_NOT_PLAIN = object()
+
+
+def _plain_int(clause: exp.Expression | None):
+    """The number in a LIMIT / OFFSET clause; None if absent; _NOT_PLAIN for anything else."""
+    if clause is None:
+        return None
+    value = clause.expression
+    if clause.args.get("limit_options") or not (isinstance(value, exp.Literal) and value.is_int):
+        return _NOT_PLAIN
+    return int(value.this)
 
 
 def _function_name(node: exp.Func) -> str:

@@ -160,7 +160,7 @@ curl -s localhost:8000/api/auth/me -H "Authorization: Bearer <access_token>"
 | `GET /api/datasets` | catalog | datasets the caller may see: columns, types, definitions, row counts, filters |
 | `GET /api/datasets/{name}` | catalog | one of them (`403` if not granted, `404` if unknown) |
 | `GET /api/datasets/{name}/rows` | preview | rows filtered by `start`, `end` (dates, inclusive) and `facility_id` (repeatable), ordered by key; `limit` ≤ 1000, `offset`, `total` |
-| `POST /api/query` | query | `{"sql": "...", "max_rows": 1000}` → columns, rows, `truncated`, the tables read |
+| `POST /api/query` | query | `{"sql": "...", "max_rows": 1000, "offset": 0}` → columns, rows, `truncated`, `next_offset`, the tables read |
 | `POST /api/refresh` | refresh | `202` + job: extract from EIA, rebuild the model (`409` if one is running) |
 | `GET /api/refresh[/{job_id}]` | refresh | recent jobs / one job: step, status, rows, new build, DQ counts, error |
 | `GET /api/health` | none | liveness and the model build being served |
@@ -172,8 +172,9 @@ only the caller's datasets, opened read-only with file access off (`data/serve/`
 **SQL.** One read-only query: `SELECT`, joins, CTEs, subqueries, set operations, aggregates and
 window functions over the dataset names in the catalog. Every table the query reads, including tables
 in subqueries and CTEs, must be granted to the caller, or the whole query is refused. Writes, settings,
-table functions (`read_parquet`...) and file paths are rejected. Results are capped at `max_rows`
-(≤ 5000) and queries stop after 10 s (`QUERY_TIMEOUT_SECONDS`). See DECISIONS.md #5 and #6.
+table functions (`read_parquet`...) and file paths are rejected. Results come `max_rows` (≤ 5000) at
+a time; send `offset = next_offset` for the next page (stable when the query has an `ORDER BY`).
+Queries stop after 10 s (`QUERY_TIMEOUT_SECONDS`). See DECISIONS.md #5 and #6.
 
 ```bash
 curl -s -X POST localhost:8000/api/query -H "Authorization: Bearer <access_token>" \

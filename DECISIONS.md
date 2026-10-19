@@ -100,7 +100,8 @@ filled in with the step that settles them, in the same commit as the code.
   `DESCRIBE`, `EXPLAIN`, `INSTALL`, `SELECT INTO`); more than one statement; table functions in `FROM`
   (`read_parquet`, `glob`, `range`, `duckdb_tables`, `query_table`...); file paths as tables;
   schema- or catalog-qualified names; functions that read files or the environment. Results are capped
-  at `max_rows` (default 1,000, at most 5,000) and queries are interrupted after 10 s.
+  at `max_rows` (default 1,000, at most 5,000) per page, with `offset` paging past that (#23), and
+  queries are interrupted after 10 s.
 - **Rejected:** single-table `SELECT` only (the brief's minimum).
 - **Why:**
   - The analysts' real questions need joins and CTEs. The reconciliation queries in `findings.sql` are
@@ -394,3 +395,23 @@ filled in with the step that settles them, in the same commit as the code.
   build never changes, and each response says which `build_id` it read.
 
   Where it lives: `api/preview.py`.
+
+### 23. Paging SQL results: offset paging merged into the query's own LIMIT / OFFSET
+
+- **Choice:** `POST /api/query` takes an `offset`. The response has `next_offset` (`null` on the last
+  page) and `ordered`, which says whether the query has a top-level `ORDER BY`. The page is written
+  into the checked query's own `LIMIT` / `OFFSET`: page `offset=10`, size 5 of `... ORDER BY x LIMIT 12`
+  runs as `LIMIT 2 OFFSET 10`. Only a `LIMIT` that isn't a plain number (`LIMIT (SELECT ...)`,
+  `LIMIT 10%`) is wrapped as `SELECT * FROM (<query>) LIMIT .. OFFSET ..`.
+- **Rejected:** always wrapping the query in a subquery, or keeping server-side cursors open between
+  requests.
+- **Why:**
+  - SQL doesn't promise that an `ORDER BY` inside a subquery orders the outer result. Merging the page
+    into the query's own clauses keeps its order exactly, and keeps a `LIMIT` the user wrote.
+  - A cursor would hold a DuckDB connection, plus memory, per user between requests, and would need
+    expiry and cleanup. Each page is a fresh request, read-only, through the same checks.
+  - Cost: every page re-runs the query, and pages line up only if the query orders by a unique key
+    and the build didn't change between pages. `ordered` and `build_id` let the client tell. The
+    result cache (#24) makes the second and later pages cheap when the query is repeated.
+
+  Where it lives: `api/sqlguard.py` (`with_page`), `api/query.py`.

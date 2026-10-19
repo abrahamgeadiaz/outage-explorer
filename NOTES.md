@@ -112,3 +112,8 @@ Running log, kept up to date while building — not written at the end.
 - **Refresh against the real API**: an incremental refresh through `POST /api/refresh` answered `202`
   in 10 ms, refused a second one with `409`, finished in 34 s, and the next request served the new
   build. It inserted 0 rows, because EIA had nothing new yet, which confirms re-runs don't duplicate.
+- **Mutation checks on SQL paging** (each made a test fail): the query's own `LIMIT` ignoring the
+  page offset, its own `OFFSET` dropped, `LIMIT 10%` treated as a plain number, `next_offset` not
+  counting from the current offset. The last one first made the paging test loop forever, because it
+  kept requesting offset 3. That test now gives up after 10 pages, so a broken `next_offset` fails
+  instead of hanging the suite.

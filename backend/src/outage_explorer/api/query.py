@@ -3,6 +3,10 @@
 Order of work: capability, then sqlguard.check (one SELECT, plain table names, every table resolved),
 then every table against the caller's grant, and only then the query runs, on the caller's serving
 file (read-only, no file access, only their tables and columns), with a row cap and a timeout.
+
+Results past max_rows are read page by page: send the next request with `offset = next_offset`. Each
+page re-runs the query, so pages line up only if the query has an ORDER BY over a unique key
+(`ordered` says whether it has one at all) and the build did not change in between (`build_id`).
 """
 
 import threading
@@ -24,11 +28,13 @@ from outage_explorer.model.tables import TABLES
 
 DEFAULT_MAX_ROWS = 1000
 MAX_ROWS = 5000
+MAX_OFFSET = 10_000_000  # more rows than the whole model has
 
 
 class QueryIn(BaseModel):
     sql: str = Field(min_length=1, max_length=sqlguard.MAX_SQL_LENGTH)
     max_rows: int = Field(DEFAULT_MAX_ROWS, ge=1, le=MAX_ROWS)
+    offset: int = Field(0, ge=0, le=MAX_OFFSET, description="Rows of the result to skip (paging).")
 
 
 class QueryOut(BaseModel):
@@ -37,7 +43,10 @@ class QueryOut(BaseModel):
     columns: list[ColumnRef]
     rows: list[list[Any]]
     row_count: int
-    truncated: bool  # more rows existed than max_rows
+    offset: int
+    truncated: bool  # more rows exist after this page
+    next_offset: int | None  # offset of the next page, or None if this was the last
+    ordered: bool  # the query has a top-level ORDER BY, so pages are stable across requests
     elapsed_ms: int
 
 
@@ -77,13 +86,13 @@ def query(
     body: QueryIn, user: Annotated[User, Depends(require(Capability.QUERY))], request: Request
 ) -> QueryOut:
     checked = authorize(user, body.sql)  # before any data is read
-    capped = sqlguard.with_row_cap(checked, body.max_rows + 1)  # one extra row tells us it was cut
+    page = sqlguard.with_page(checked, body.offset, body.max_rows + 1)  # one extra row: is there more?
 
     settings = request.app.state.settings
     manifest = live_manifest(settings)
     started = time.perf_counter()
     with store.connect(settings.data_path, manifest, granted_tables(user.role)) as con:
-        description, rows = run(con, capped.sql(), settings.query_timeout_seconds)
+        description, rows = run(con, page.sql(), settings.query_timeout_seconds)
     elapsed = int((time.perf_counter() - started) * 1000)
 
     truncated = len(rows) > body.max_rows
@@ -94,6 +103,9 @@ def query(
         columns=[ColumnRef(name=d[0], type=str(d[1])) for d in description],
         rows=[[json_value(v) for v in row] for row in rows],
         row_count=len(rows),
+        offset=body.offset,
         truncated=truncated,
+        next_offset=body.offset + len(rows) if truncated else None,
+        ordered=checked.tree.args.get("order") is not None,
         elapsed_ms=elapsed,
     )
