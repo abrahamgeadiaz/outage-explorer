@@ -467,3 +467,28 @@ filled in with the step that settles them, in the same commit as the code.
     identity provider with its own protections (#19).
 
   Where it lives: `api/ratelimit.py`; used in `api/auth.py` (`login`).
+
+### 26. Web app: one origin through the Vite proxy; the token in localStorage; the server decides access
+
+- **Choice:** React + TypeScript (Vite), TanStack Query for server data, React Router. In development
+  the Vite server proxies `/api` to FastAPI, so the browser sees one origin. The access token is kept
+  in `localStorage`, so a reload or a new tab keeps the session. On load the app asks
+  `GET /api/auth/me` who the token belongs to and what the role may do. Any 401 signs the user out
+  with "session expired". Login and logout clear every cached response.
+- **Rejected:** an httpOnly cookie for the token, and enabling CORS on the API.
+- **Why:**
+  - A cookie keeps the token away from JavaScript. But then every request carries it automatically,
+    which brings CSRF protection, and the API would need cookie handling next to the bearer tokens the
+    tests and `curl` use. With a 60-minute token, a read-only API and React escaping all output,
+    `localStorage` is an acceptable trade-off for this scope; it is the first thing I'd change for
+    production.
+  - With the proxy, the API needs no CORS configuration, which is one less policy that could be
+    misconfigured. A production build would be served by the same server, or behind the same reverse
+    proxy as the API.
+  - The UI hides what a role can't use (the Refresh link, the SQL page), but only for convenience. The
+    API checks every request itself, and the UI shows its `403` as "not allowed" when someone goes
+    straight to the URL.
+  - Retries happen only for network errors and transient 5xx. A 403 is never retried, and neither is a
+    `503 model_not_built`, which lasts until an Admin refreshes.
+
+  Where it lives: `frontend/src/api/client.ts`, `frontend/src/auth/`, `frontend/vite.config.ts`.
