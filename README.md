@@ -158,7 +158,7 @@ curl -s localhost:8000/api/auth/me -H "Authorization: Bearer <access_token>"
 | `GET /api/auth/me` | logged in | the current user |
 | `GET /api/datasets` | catalog | datasets the caller may see: columns, types, definitions, row counts, filters |
 | `GET /api/datasets/{name}` | catalog | one of them (`403` if not granted, `404` if unknown) |
-| `GET /api/datasets/{name}/rows` | preview | rows filtered by `start`, `end` (dates, inclusive) and `facility_id` (repeatable), ordered by key; `limit` ≤ 1000, `offset`, `total` |
+| `GET /api/datasets/{name}/rows` | preview | rows filtered by `start`, `end` (dates, inclusive) and `facility_id` (repeatable), ordered by key; `limit` ≤ 1000, `offset` ≤ 10,000,000, `total` |
 | `POST /api/query` | query | `{"sql": "...", "max_rows": 1000, "offset": 0}` → columns, rows, `truncated`, `next_offset`, the tables read |
 | `POST /api/refresh` | refresh | `202` + job: extract from EIA, rebuild the model (`409` if one is running) |
 | `GET /api/refresh[/{job_id}]` | refresh | recent jobs / one job: step, status, rows, new build, DQ counts, error |

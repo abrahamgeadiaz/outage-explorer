@@ -26,13 +26,12 @@ from outage_explorer.api.auth import require
 from outage_explorer.api.catalog import live_manifest
 from outage_explorer.api.errors import ApiError, forbidden
 from outage_explorer.api.policy import Capability, granted_tables
-from outage_explorer.api.preview import ColumnRef, json_value
+from outage_explorer.api.preview import MAX_OFFSET, ColumnRef, json_value
 from outage_explorer.api.users import User
 from outage_explorer.model.tables import TABLES
 
 DEFAULT_MAX_ROWS = 1000
 MAX_ROWS = 5000
-MAX_OFFSET = 10_000_000  # more rows than the whole model has
 QUEUE_WAIT_SECONDS = 2.0  # how long a query waits for a free slot before 503 server_busy
 
 

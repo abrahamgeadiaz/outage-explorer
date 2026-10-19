@@ -388,8 +388,9 @@ filled in with the step that settles them, in the same commit as the code.
 - **Choice:** `GET /api/datasets/{name}/rows?start=&end=&facility_id=&limit=&offset=`. Filters are
   checked against the dataset's granted columns: a filter the dataset doesn't support is a `400`, not
   ignored. For tables with a date span (`dim_*`, `dq_issue`), the date filter keeps rows overlapping it.
-  Results are ordered by primary key. `limit` is at most 1,000. The response includes `total` for the
-  filters and `has_more`.
+  Results are ordered by primary key. `limit` is at most 1,000 and `offset` at most 10,000,000 (more
+  rows than the model has; the security review found that a larger one, past 2^63, reached DuckDB and
+  failed there with a `500`). The response includes `total` for the filters and `has_more`.
 - **Rejected:** keyset (cursor) pagination.
 - **Why:** the web app's table needs "page N of M" and jumping to a page, which needs `total` and an
   offset. On the real data, offset 700,000 of the 713,327 generator rows takes about 60 ms. Keyset

@@ -21,6 +21,7 @@ from outage_explorer.api.users import User
 from outage_explorer.model.tables import TABLES, Column
 
 MAX_LIMIT = 1000
+MAX_OFFSET = 10_000_000  # more rows than the whole model has; past 2**63 DuckDB can't bind it
 MAX_FACILITIES = 100
 
 
@@ -88,7 +89,7 @@ def preview(
     end: Annotated[date | None, Query(description="Last day (inclusive).")] = None,
     facility_id: Annotated[list[str], Query(description="Repeat to filter on several facilities.")] = [],  # noqa: B006
     limit: Annotated[int, Query(ge=1, le=MAX_LIMIT)] = 100,
-    offset: Annotated[int, Query(ge=0)] = 0,
+    offset: Annotated[int, Query(ge=0, le=MAX_OFFSET)] = 0,
 ) -> RowsOut:
     columns = visible_columns(user, name)  # 404 / 403 before anything is read
     where, params = _where(name, columns, start, end, facility_id)

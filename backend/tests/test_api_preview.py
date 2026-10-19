@@ -84,7 +84,17 @@ def test_bad_filters_are_400(client, api_model, dataset, params, code):
     assert resp.json()["error"]["code"] == code
 
 
-@pytest.mark.parametrize("params", [{"limit": 0}, {"limit": 1001}, {"offset": -1}, {"start": "yesterday"}])
+@pytest.mark.parametrize(
+    "params",
+    [
+        {"limit": 0},
+        {"limit": 1001},
+        {"offset": -1},
+        {"offset": 2**63},
+        {"offset": 10_000_001},
+        {"start": "yesterday"},
+    ],
+)  # 2**63 used to reach DuckDB and fail there with a 500
 def test_out_of_range_parameters_are_422(client, api_model, params):
     assert _get(client, "analyst", "fact_generator_daily", **params).status_code == 422
 
