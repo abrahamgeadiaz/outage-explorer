@@ -171,7 +171,8 @@ only the caller's datasets, opened read-only with file access off (`data/serve/`
 **SQL.** One read-only query: `SELECT`, joins, CTEs, subqueries, set operations, aggregates and
 window functions over the dataset names in the catalog. Every table the query reads, including tables
 in subqueries and CTEs, must be granted to the caller, or the whole query is refused. Writes, settings,
-table functions (`read_parquet`...) and file paths are rejected. Results come `max_rows` (≤ 5000) at
+table functions (`read_parquet`...), file paths and functions outside an allow-list (DECISIONS.md #27)
+are rejected. Results come `max_rows` (≤ 5000) at
 a time; send `offset = next_offset` for the next page (stable when the query has an `ORDER BY`).
 Queries stop after 10 s (`QUERY_TIMEOUT_SECONDS`). Results are cached
 for 5 minutes per role grant and model build (`cached: true` in the response; `QUERY_CACHE_TTL_SECONDS`,

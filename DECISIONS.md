@@ -99,7 +99,8 @@ filled in with the step that settles them, in the same commit as the code.
   engine (`INSERT`, `UPDATE`, `DELETE`, `CREATE`, `DROP`, `ALTER`, `COPY`, `ATTACH`, `SET`, `PRAGMA`,
   `DESCRIBE`, `EXPLAIN`, `INSTALL`, `SELECT INTO`); more than one statement; table functions in `FROM`
   (`read_parquet`, `glob`, `range`, `duckdb_tables`, `query_table`...); file paths as tables;
-  schema- or catalog-qualified names; functions that read files or the environment. Results are capped
+  schema- or catalog-qualified names; any function not on an allow-list (#27), which leaves out those
+  that read files or the environment and those that can build a huge value. Results are capped
   at `max_rows` (default 1,000, at most 5,000) per page, with `offset` paging past that (#23), and
   queries are interrupted after 10 s.
 - **Rejected:** single-table `SELECT` only (the brief's minimum).
@@ -497,9 +498,12 @@ filled in with the step that settles them, in the same commit as the code.
 
 - **Choice:** every serving connection (#21) opens with `memory_limit = 1GB`, `threads = 2` and
   `max_temp_directory_size = 0GB`, set before `lock_configuration`, so a query can't `SET` them back.
-  A query over the limit fails with `400 query_error` (out of memory) instead of growing.
+  A query over the limit fails with `400 query_error` (out of memory) instead of growing. On top of
+  that, `sqlguard` accepts only functions on an allow-list (`ALLOWED_FUNCTIONS`, 144 names: aggregates,
+  window, math, dates, common string and list functions), each returning a value at most linear in
+  its inputs; anything else is `400 function_not_allowed`.
 - **Rejected:** DuckDB's defaults (80% of RAM and every core for each query), with the 10 s timeout as
-  the only limit.
+  the only limit; and a block-list of the dangerous functions instead of an allow-list.
 - **Why:**
   - Found in a security review: the timeout bounds time, not memory, and any signed-in role, Viewer
     included, can run SQL. A sort, join or aggregate over a crafted expression could ask for gigabytes
@@ -511,7 +515,19 @@ filled in with the step that settles them, in the same commit as the code.
     memory.
   - Limit of this layer: DuckDB counts memory held by its operators (sorts, hash tables, aggregate
     state), not a single huge value built by a scalar function. `repeat('x', 2000000000)` still
-    allocates 2 GB, and its interrupt only lands when the function returns. That is handled in the
-    SQL check, not here (below).
+    allocates 2 GB, and its interrupt only lands when the function returns. In the review, `range(1e9)`
+    held a query for 50 s and ~8 GB, past a 3 s interrupt. Same class: `lpad`/`rpad`, `space`, a width
+    in `printf`/`format`, nested `replace` (three levels of 1,000 characters make 1 GB from 3 KB of
+    SQL), `list_resize`, `array_to_string` over a `list()`, `list_reduce` doubling a string.
+  - That is why the check is an allow-list, the same idea as the grants (#20): the review found a new
+    amplifier with almost every probe, so a block-list would only hold until the next one. A function
+    nobody has reviewed stays out until someone adds it. Cost: some DuckDB functions an analyst might
+    want (`lpad` for formatting, `generate_series` for a date spine) are refused; a date spine can come
+    from `fact_national_daily.period`. Lambdas (`list_transform`) are out too, to keep the list short.
+  - Names are sqlglot's (`string_agg` parses as `group_concat`, `strftime` as `time_to_str`), so the
+    15 queries in `analysis/findings.sql` and a list of everyday expressions are tested to pass.
+  - Not covered: an amplifier among the allowed functions that nobody has found yet. The stronger fix
+    is to run each query in a worker process that is killed on timeout, with an OS memory cap; I'd do
+    that before exposing SQL to untrusted users.
 
-  Where it lives: `api/store.py` (`SANDBOX`).
+  Where it lives: `api/store.py` (`SANDBOX`), `api/sqlguard.py` (`ALLOWED_FUNCTIONS`).

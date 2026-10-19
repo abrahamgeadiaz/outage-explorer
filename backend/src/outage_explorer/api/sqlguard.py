@@ -7,7 +7,7 @@ The SQL is parsed with sqlglot (DuckDB dialect) and accepted only if:
   ATTACH, COPY, DESCRIBE, ...);
 - every FROM / JOIN source is a plain table name: no table functions (read_parquet, glob, range,
   duckdb_tables, query_table...), no file paths, no schema- or catalog-qualified names;
-- no function that reads files is called.
+- every function it calls is in ALLOWED_FUNCTIONS (none reads files or builds a huge value).
 
 Every table reference is then resolved: either to a CTE visible at that point of the query, or to a
 model table. The model tables are returned so the caller can check each one against the user's grant.
@@ -57,9 +57,47 @@ _FORBIDDEN = tuple(
     if (cls := getattr(exp, name, None)) is not None
 )
 
-# Functions that reach outside the allowed tables. The serving sandbox blocks them anyway (no file
-# access, DECISIONS #21); rejecting them here gives a clear error instead of an engine one.
-_FILE_FUNCTION_PREFIXES = ("read_", "parquet_", "sniff_", "glob", "getenv", "query", "duckdb_")
+# The only functions a query may call (DECISIONS #27), by the name sqlglot gives them (DuckDB's
+# spellings map onto these: string_agg -> group_concat, strftime -> time_to_str, list -> array_agg...).
+# An allow-list for the same reason as the grants (#20): a function nobody reviewed stays out.
+# Every one here returns a value at most linear in the size of its inputs. Left out on purpose:
+# - size amplifiers: repeat, lpad/rpad, space, printf/format (a width), replace/regexp_replace (nested,
+#   each multiplies), range/generate_series, list_resize, array_to_string, list_reduce. DuckDB's memory
+#   limit doesn't count one scalar value, and its interrupt waits for the function to return, so
+#   `repeat('x', 2e9)` would take 2 GB and outlive the timeout;
+# - anything reading files, the environment or engine state: read_*, glob, getenv, current_setting,
+#   duckdb_*, version (the serving sandbox blocks file access anyway, #21).
+ALLOWED_FUNCTIONS = frozenset(
+    {
+        # syntax that sqlglot models as functions
+        "and", "or", "xor", "case", "if", "cast", "try_cast", "coalesce", "nullif", "greatest", "least",
+        "exists", "extract", "columns", "struct", "array", "explode",
+        # aggregates (their state counts against the memory limit)
+        "count", "count_if", "sum", "avg", "min", "max", "any_value", "arg_max", "arg_min", "first",
+        "last", "median", "mode", "percentile_cont", "percentile_disc", "approx_distinct",
+        "approx_quantile", "stddev", "stddev_pop", "stddev_samp", "variance", "variance_pop", "corr",
+        "covar_pop", "covar_samp", "regr_slope", "regr_intercept", "regr_r2", "regr_count",
+        "logical_and", "logical_or", "group_concat", "array_agg", "kurtosis", "skewness",
+        # window
+        "row_number", "rank", "dense_rank", "percent_rank", "cume_dist", "ntile", "lag", "lead",
+        "first_value", "last_value", "nth_value",
+        # math
+        "abs", "ceil", "floor", "round", "trunc", "sign", "sqrt", "cbrt", "power", "exp", "ln", "log",
+        "pi", "is_nan", "is_inf", "degrees", "radians",
+        # dates
+        "current_date", "current_timestamp", "now", "date", "date_trunc", "timestamp_trunc", "date_add",
+        "date_sub", "datediff", "date_bin", "date_from_parts", "date_part", "datepart", "age", "year",
+        "quarter", "month", "week", "week_of_year", "yearweek", "day", "day_of_month", "day_of_week",
+        "day_of_year", "dayofweek_iso", "dayname", "monthname", "hour", "minute", "second", "last_day",
+        "time_to_str", "str_to_time", "str_to_date", "time_to_unix", "unix_to_time",
+        # strings
+        "length", "strlen", "lower", "upper", "trim", "left", "right", "substring", "split_part", "split",
+        "concat", "concat_ws", "starts_with", "ends_with", "contains", "str_position", "regexp_like",
+        "regexp_extract", "translate", "reverse", "ascii", "chr",
+        # lists
+        "array_size", "cardinality", "array_contains", "array_distinct", "sort_array", "list_extract",
+    }
+)  # fmt: skip
 
 
 class SqlRejected(Exception):
@@ -94,7 +132,7 @@ def check(sql: str, known_tables: set[str]) -> CheckedQuery:
     for node in tree.walk():
         if isinstance(node, _FORBIDDEN):
             raise SqlRejected("read_only", f"only SELECT queries are allowed; found {_kind(node)}")
-        if isinstance(node, exp.Func) and _function_name(node).startswith(_FILE_FUNCTION_PREFIXES):
+        if isinstance(node, exp.Func) and _function_name(node) not in ALLOWED_FUNCTIONS:
             raise SqlRejected("function_not_allowed", f"function '{_function_name(node)}' is not allowed")
 
     tables: set[str] = set()

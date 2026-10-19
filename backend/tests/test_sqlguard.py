@@ -111,7 +111,7 @@ def test_a_cte_named_like_a_table_does_not_hide_that_table_elsewhere():
         ("SELECT * FROM duckdb_tables()", "function_not_allowed"),
         ("SELECT * FROM query_table('fact_generator_daily')", "function_not_allowed"),
         ("SELECT getenv('JWT_SECRET')", "function_not_allowed"),
-        ("SELECT * FROM range(10)", "source_not_allowed"),
+        ("SELECT * FROM range(10)", "function_not_allowed"),  # caught by the allow-list first
         ("SELECT * FROM main.fact_generator_daily", "source_not_allowed"),
         ("SELECT * FROM information_schema.tables", "source_not_allowed"),
         ("SELECT * FROM 'data/raw/generator/year=2015/data.parquet'", "unknown_table"),
@@ -121,6 +121,53 @@ def test_a_cte_named_like_a_table_does_not_hide_that_table_elsewhere():
 )
 def test_rejected_statements(sql, code):
     assert rejected(sql) == code
+
+
+# Each of these built a value of ~1 GB or more past DuckDB's memory limit in the security review,
+# and most held the query far past its timeout (DECISIONS #27).
+@pytest.mark.parametrize(
+    "sql",
+    [
+        "SELECT repeat('x', 2000000000)",
+        "SELECT length(repeat(repeat('x', 40000), 25000))",
+        "SELECT lpad('', 1000000000, 'x')",
+        "SELECT rpad('', 1000000000, 'x')",
+        "SELECT space(1000000000)",
+        "SELECT printf('%01000000000d', 1)",
+        "SELECT format('{:>1000000000}', 1)",
+        "SELECT replace(replace(replace('x', 'x', 'xxxx'), 'x', 'xxxx'), 'x', 'xxxx')",
+        "SELECT regexp_replace('x', 'x', 'xxxx', 'g')",
+        "SELECT len(range(1000000000))",
+        "SELECT len(generate_series(1, 1000000000))",
+        "SELECT len(list_resize([1], 1000000000))",
+        "SELECT array_to_string(list(period), 'x') FROM fact_national_daily",
+        "SELECT list_reduce([1, 2], (a, x) -> a || a)",
+        "SELECT current_setting('memory_limit')",
+        "SELECT version()",
+    ],
+)
+def test_functions_outside_the_allow_list_are_rejected(sql):
+    assert rejected(sql) == "function_not_allowed"
+
+
+@pytest.mark.parametrize(
+    "expression",
+    [
+        "strftime(period, '%Y-%m')", "date_trunc('month', period)", "date_diff('day', period, today())",
+        "date_part('year', period)", "extract(year FROM period)", "isodow(period)", "period + INTERVAL 1 DAY",
+        "string_agg(facility_id, ',')", "list(facility_id)", "count(DISTINCT facility_id)",
+        "sum(outage_mw) FILTER (WHERE outage_mw > 0)", "quantile_cont(outage_mw, 0.5)", "median(outage_mw)",
+        "arg_max(facility_id, outage_mw)", "round(avg(outage_mw), 2)", "coalesce(outage_mw, 0)",
+        "CASE WHEN outage_mw > 0 THEN 'out' ELSE 'up' END", "outage_mw::INT", "TRY_CAST(facility_id AS INT)",
+        "lower(facility_name)", "split_part(facility_id, '/', 1)", "facility_name ILIKE '%river%'",
+        "regexp_matches(facility_name, 'Bend')", "concat(facility_id, '/', generator_id)",
+        "lag(outage_mw) OVER (ORDER BY period)", "row_number() OVER (PARTITION BY facility_id)",
+        "greatest(outage_mw, 0)", "unnest([1, 2])", "len([1, 2])",
+    ],
+)  # fmt: skip
+def test_common_analysis_functions_are_allowed(expression):
+    sql = f"SELECT {expression} FROM fact_generator_daily GROUP BY ALL"
+    assert tables(sql) == {"fact_generator_daily"}
 
 
 def test_overlong_queries_are_rejected():
