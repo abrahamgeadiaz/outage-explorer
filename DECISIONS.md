@@ -1,8 +1,7 @@
 # Decisions
 
 Each entry: **the choice**, **one alternative rejected**, and **why**. Questions 1–6 are the ones the brief
-asks about; the rest are decisions of our own that shaped the solution. Entries marked _pending_ are
-filled in with the step that settles them, in the same commit as the code.
+asks about; the rest are decisions of our own that shaped the solution.
 
 ---
 
