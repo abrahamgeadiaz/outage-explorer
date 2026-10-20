@@ -336,8 +336,11 @@ convenience: every request is authorized by the API (DECISIONS.md #26).
 - **Paging re-runs the query.** SQL pages line up only when the query has an `ORDER BY` over a unique
   key and the build doesn't change between pages; the response says both (`ordered`, `build_id`) (#23).
 - **Raw history is overwritten.** A re-fetched window replaces the stored values and the previous ones
-  are not kept (model builds keep the last 3). New EIA fields are reported (`unknown_fields`), not added
-  to the schema automatically.
+  are not kept (model builds keep the last 3).
+- **Schema evolution is detected, not handled.** A new EIA field is logged and listed in the run's
+  `unknown_fields`, but it is not stored: there is no policy for adding columns. A removed or renamed
+  required field rejects every row (`missing_<field>`), so that window fails and the stored data stays
+  as it was until the connector is updated.
 - **The first full load is slow** (~40 minutes): facility and generator pages take 10–60 s each and EIA
   often answers 504. It is resumable: a failed window is fetched again on the next run (#12).
 - **Login rate limiting is per connection address.** Behind a reverse proxy it needs the proxy's real
