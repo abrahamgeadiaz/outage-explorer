@@ -365,3 +365,5 @@ Taken from the running app on real data (build `20261020T041819535283Z-4d9d55`),
 - `docs/model.md`: ER diagram, keys, types, notes for larger volumes
 - `NOTES.md`: engineering notes (AI usage, what the AI got wrong, verification)
 - `PRODUCT.md`: stories added, key UX decisions, what was left out and what comes next
+- `RECOMMENDATIONS.md`: how to grow past one local server: several workers, refresh jobs, SQL
+  isolation, per-user and row-level permissions, OIDC, data history, deployment
