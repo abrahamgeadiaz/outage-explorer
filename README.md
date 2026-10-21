@@ -294,6 +294,18 @@ The session survives reloads (token in `localStorage`, checked with `/api/auth/m
 the token on the server too; when it expires, you're signed out with a notice. Hiding links is only a
 convenience: every request is authorized by the API (DECISIONS.md #26).
 
+### Screenshots
+
+Taken from the running app on real data (build `20261020T041819535283Z-4d9d55`), in `docs/screenshots/`.
+
+| | |
+|---|---|
+| ![Login](docs/screenshots/01-login.png) **Login** | ![Datasets as Analyst](docs/screenshots/02-datasets-analyst.png) **Analyst** sees every dataset |
+| ![Datasets as Viewer](docs/screenshots/03-datasets-viewer.png) **Viewer** sees only the national grain and the metric (12 columns: no `missing_units`) | ![Viewer opens a generator URL](docs/screenshots/05-viewer-forbidden.png) **Viewer** typing a generator URL gets the API's `403` |
+| ![Generator preview](docs/screenshots/04-preview-analyst.png) **Preview** filtered by date and facility: River Bend 6462/1 has no rows on 2015-02-14 and 15 (FINDINGS.md) | ![SQL results](docs/screenshots/06-sql-results.png) **SQL**: those two days are incomplete in the US-08 metric, 967 MW missing |
+| ![SQL rejected](docs/screenshots/07-sql-rejected.png) **SQL** guard rejects a file reader, with its error code | ![Fleet offline](docs/screenshots/08-fleet.png) **US-08** over 5 years: the shaded days are Palisades 1715/1 missing (2022-06-01..2025-09-08) |
+| ![Refresh](docs/screenshots/09-refresh-admin.png) **Admin** refresh: steps, rows per dataset, new build, DQ counts | |
+
 ## Assumptions
 
 - **EIA is the source of truth, grain by grain.** Values are stored as EIA sends them; one grain is

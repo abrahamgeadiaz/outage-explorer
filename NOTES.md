@@ -14,6 +14,7 @@ Running log, kept up to date while building — not written at the end.
 | Web app (`frontend/`): session, routes, dataset, SQL, refresh and US-08 pages + component tests | Claude Code | Reviewed; screens checked in a real browser against the real API |
 | API auth, policy, catalog, preview, serving store, SQL guard, query, refresh jobs (`api/`) + tests | Claude Code | Reviewed; Viewer column grant, role-per-request and the per-grant sandbox decided by me |
 | Documents: README, DECISIONS.md, FINDINGS.md, docs/model.md, PRODUCT.md | Claude Code (drafts) | Reviewed; decisions and stories chosen by me; every number in FINDINGS.md checked against a query (#7) |
+| README screenshots (`docs/screenshots/`), taken with a headless-Chrome script kept outside the repo | Claude Code | Reviewed every image; chose the screens and the real-data examples (River Bend gap, Palisades gap) |
 | Security review of the whole repo, the resource-limit fixes (DECISIONS.md #27) and the low findings (login limits, preview offset, logout, CSV) + tests | Claude Code | Reviewed; allow-list over block-list decided by me; scope and order of fixes chosen by me |
 
 ## Things the AI got wrong (and how I caught it)
